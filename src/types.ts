@@ -62,3 +62,23 @@ export type TeamMember = {
   tags: string[];
   avatar: string;
 };
+
+export type ACPMessageStatus = 'pending' | 'processing' | 'done' | 'error';
+
+export type ACPMessage = {
+  id: string;
+  from: string;          // agent id, e.g. 'opencore', 'hermes', 'user'
+  to: string;            // agent id or 'broadcast'
+  content: string;
+  timestamp: string;     // ISO 8601
+  status: ACPMessageStatus;
+  metadata?: Record<string, string>;
+};
+
+export type AgentRegistration = {
+  id: string;            // e.g. 'opencore', 'hermes'
+  name: string;
+  model: string;         // e.g. 'claude-haiku-4-5-20251001'
+  status: 'active' | 'idle' | 'offline';
+  lastHeartbeat: string; // ISO 8601
+};
