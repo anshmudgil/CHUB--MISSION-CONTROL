@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutGrid, Bot, GitMerge, CheckCircle, Crown, Calendar,
-  Brain, Users, Settings
+  Brain, Users, Settings, BookOpen, LogOut
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -12,6 +12,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, href: '/' },
   { id: 'tasks', label: 'Tasks Board', icon: CheckCircle, href: '/tasks' },
   { id: 'content-pipeline', label: 'Content Pipeline', icon: GitMerge, href: '/content-pipeline' },
+  { id: 'journal', label: 'Journal', icon: BookOpen, href: '/journal' },
   { id: 'ai-team', label: 'AI Team', icon: Bot, href: '/ai-team' },
   { id: 'council', label: 'Council', icon: Crown, href: '/council' },
   { id: 'calendar', label: 'Calendar', icon: Calendar, href: '/calendar' },
@@ -47,9 +48,18 @@ export function Sidebar() {
         })}
       </div>
 
-      <div className="p-4 border-t border-border-base flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full bg-bg-panel border border-border-base flex items-center justify-center text-text-muted font-bold">
-          N
+      <div className="p-4 border-t border-border-base flex flex-col gap-2">
+        <a
+          href="/api/auth/logout"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-base rounded-lg hover:bg-bg-panel transition-colors"
+        >
+          <LogOut size={16} />
+          Logout
+        </a>
+        <div className="flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-bg-panel border border-border-base flex items-center justify-center text-text-muted font-bold">
+            A
+          </div>
         </div>
       </div>
     </div>

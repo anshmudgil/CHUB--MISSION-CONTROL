@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext, DragOverlay, closestCorners, KeyboardSensor,
   PointerSensor, useSensor, useSensors, DragStartEvent,
@@ -8,7 +8,6 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Task, Comment } from '@/types';
-import { INITIAL_TASKS } from '@/data/initial';
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { Plus, ChevronDown, Activity, X, Calendar, Flag, User, MessageSquare, Trash2 } from 'lucide-react';
@@ -21,7 +20,8 @@ const COLUMNS = [
 ];
 
 export function TasksView() {
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
@@ -30,6 +30,29 @@ export function TasksView() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('ansh');
+  const [newTaskPriority, setNewTaskPriority] = useState('medium');
+  const [newTaskDue, setNewTaskDue] = useState('');
+
+  const fetchTasks = async () => {
+    try {
+      const res = await fetch('/api/tasks');
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch tasks', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -92,13 +115,23 @@ export function TasksView() {
       setTasks(tasks => {
         const activeIndex = tasks.findIndex(t => t.id === activeId);
         const overIndex = tasks.findIndex(t => t.id === overId);
-        if (tasks[activeIndex].columnId === tasks[overIndex].columnId) {
-          return arrayMove(tasks, activeIndex, overIndex);
+        if (tasks[activeIndex].columnId !== tasks[overIndex].columnId) {
+          const newColumnId = tasks[overIndex].columnId;
+          fetch('/api/tasks/' + String(activeId), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columnId: newColumnId }),
+          }).catch(console.error);
+          const newTasks = [...tasks];
+          newTasks[activeIndex].columnId = newColumnId;
+          return arrayMove(newTasks, activeIndex, overIndex);
         }
-        return tasks;
+        return arrayMove(tasks, activeIndex, overIndex);
       });
     }
   };
+
+  if (loading) return <div className="p-8 text-text-muted">Loading...</div>;
 
   const filteredTasks = tasks.filter(task => {
     if (assigneeFilter && task.assignee.name !== assigneeFilter) return false;
@@ -206,7 +239,10 @@ export function TasksView() {
                     tasks={filteredTasks.filter(t => t.columnId === col.id)} 
                     onTaskClick={setSelectedTask}
                     onTaskEdit={(task) => { /* Handle edit */ }}
-                    onTaskDelete={(task) => { setTasks(tasks.filter(t => t.id !== task.id)); }}
+                    onTaskDelete={async (task) => {
+              await fetch('/api/tasks/' + task.id, { method: 'DELETE' }).catch(console.error);
+              fetchTasks();
+            }}
                     onTaskChangeStatus={(task) => { /* Handle status change */ }}
                   />
                 ))}
@@ -403,6 +439,8 @@ export function TasksView() {
                 <input 
                   type="text" 
                   placeholder="Task title"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
                   className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong"
                 />
               </div>
@@ -410,13 +448,15 @@ export function TasksView() {
                 <label className="block text-sm font-medium text-text-base mb-1.5">Description</label>
                 <textarea 
                   placeholder="Task description"
+                  value={newTaskDesc}
+                  onChange={(e) => setNewTaskDesc(e.target.value)}
                   className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong resize-none min-h-[100px]"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-text-base mb-1.5">Assignee</label>
-                  <select className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong appearance-none">
+                  <select value={newTaskAssignee} onChange={(e) => setNewTaskAssignee(e.target.value)} className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong appearance-none">
                     <option value="ansh">Ansh</option>
                     <option value="velo">VELO</option>
                     <option value="unassigned">Unassigned</option>
@@ -424,7 +464,7 @@ export function TasksView() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-base mb-1.5">Priority</label>
-                  <select className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong appearance-none">
+                  <select value={newTaskPriority} onChange={(e) => setNewTaskPriority(e.target.value)} className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong appearance-none">
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
@@ -435,6 +475,8 @@ export function TasksView() {
                 <label className="block text-sm font-medium text-text-base mb-1.5">Due Date</label>
                 <input 
                   type="date" 
+                  value={newTaskDue}
+                  onChange={(e) => setNewTaskDue(e.target.value)}
                   className="w-full bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong"
                   style={{ colorScheme: 'dark' }}
                 />
@@ -448,7 +490,29 @@ export function TasksView() {
                 Cancel
               </button>
               <button 
-                onClick={() => setIsNewTaskModalOpen(false)}
+                onClick={async () => {
+                  if (!newTaskTitle.trim()) return;
+                  const assigneeName = newTaskAssignee === 'ansh' ? 'Ansh' : newTaskAssignee === 'velo' ? 'VELO' : 'Unassigned';
+                  await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      title: newTaskTitle,
+                      description: newTaskDesc,
+                      columnId: 'backlog',
+                      assignee: assigneeName,
+                      priority: newTaskPriority,
+                      dueDate: newTaskDue || undefined,
+                    }),
+                  }).catch(console.error);
+                  setNewTaskTitle('');
+                  setNewTaskDesc('');
+                  setNewTaskAssignee('ansh');
+                  setNewTaskPriority('medium');
+                  setNewTaskDue('');
+                  setIsNewTaskModalOpen(false);
+                  fetchTasks();
+                }}
                 className="bg-accent hover:bg-accent/90 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors shadow-elevation-card-rest"
               >
                 Create Task

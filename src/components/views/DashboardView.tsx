@@ -23,6 +23,33 @@ function timeAgo(iso: string) {
 
 export function DashboardView() {
   const [messages, setMessages] = useState<ACPMessage[]>([]);
+  const [activeTasks, setActiveTasks] = useState(0);
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [contentCount, setContentCount] = useState(0);
+  const [mrrValue, setMrrValue] = useState('$0');
+
+  // Fetch real stats
+  useEffect(() => {
+    fetch('/api/tasks')
+      .then(r => r.json())
+      .then((data: { columnId: string }[]) => {
+        setTotalTasks(data.length);
+        setActiveTasks(data.filter((t) => t.columnId === 'in-progress').length);
+      })
+      .catch(() => {});
+
+    fetch('/api/content')
+      .then(r => r.json())
+      .then((data: unknown[]) => setContentCount(data.length))
+      .catch(() => {});
+
+    fetch('/api/kpis?name=mrr')
+      .then(r => r.json())
+      .then((data: { value?: string }[]) => {
+        if (data && data[0]?.value) setMrrValue('$' + data[0].value);
+      })
+      .catch(() => {});
+  }, []);
 
   // Seed with recent messages on mount
   useEffect(() => {
@@ -45,9 +72,9 @@ export function DashboardView() {
   }, []);
 
   const metrics = [
-    { label: 'Active Tasks', value: '24', icon: CheckCircle2, color: 'text-blue-400' },
-    { label: 'Content Pipeline', value: '12', icon: PlayCircle, color: 'text-purple-400', subtext: '3 Scripting, 5 Editing' },
-    { label: 'Upcoming Events', value: '4', icon: Calendar, color: 'text-green-400', subtext: 'Next 48 hours' },
+    { label: 'Active Tasks', value: String(activeTasks), icon: CheckCircle2, color: 'text-blue-400', subtext: `${totalTasks} total` },
+    { label: 'Content Pipeline', value: String(contentCount), icon: PlayCircle, color: 'text-purple-400', subtext: 'Items tracked' },
+    { label: 'MRR', value: mrrValue, icon: Calendar, color: 'text-green-400', subtext: 'Current MRR' },
     { label: 'ACP Messages', value: String(messages.length), icon: Activity, color: 'text-emerald-400', subtext: 'Live agent messages' },
   ];
 

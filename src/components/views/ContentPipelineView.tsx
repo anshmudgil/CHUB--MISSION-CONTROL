@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext,
   closestCorners,
@@ -16,73 +16,7 @@ import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { Task } from '@/types';
-import { Plus, Filter, Search, MoreHorizontal, Video, FileText, CheckCircle } from 'lucide-react';
-
-const INITIAL_CONTENT: Task[] = [
-  {
-    id: 'c1',
-    columnId: 'idea',
-    title: '10 CRO Tips for SaaS',
-    description: 'YouTube video script ideas focusing on B2B SaaS conversion rate optimization.',
-    assignee: { name: 'Ansh', initial: 'A', color: 'bg-blue-500' },
-    tag: { label: 'YouTube', color: 'text-red-400 bg-red-400/10' },
-    timeAgo: '2h ago'
-  },
-  {
-    id: 'c2',
-    columnId: 'scripting',
-    title: 'LinkedIn Post: Why A/B Testing Fails',
-    description: 'Drafting the hook and main points for the upcoming LinkedIn post.',
-    assignee: { name: 'VELO', initial: 'V', color: 'bg-purple-500' },
-    tag: { label: 'LinkedIn', color: 'text-blue-400 bg-blue-400/10' },
-    timeAgo: '5h ago'
-  },
-  {
-    id: 'c3',
-    columnId: 'recording-drafting',
-    title: 'Velocity OS Demo Video',
-    description: 'Recording the screen capture for the new feature release.',
-    assignee: { name: 'Ansh', initial: 'A', color: 'bg-blue-500' },
-    tag: { label: 'Demo', color: 'text-emerald-400 bg-emerald-400/10' },
-    timeAgo: '1d ago'
-  },
-  {
-    id: 'c4',
-    columnId: 'editing',
-    title: 'Podcast Ep 12: CRO Masterclass',
-    description: 'Editing audio and adding intro/outro music.',
-    assignee: { name: 'VELO', initial: 'V', color: 'bg-purple-500' },
-    tag: { label: 'Podcast', color: 'text-amber-400 bg-amber-400/10' },
-    timeAgo: '2d ago'
-  },
-  {
-    id: 'c5',
-    columnId: 'review',
-    title: 'Newsletter: Q3 CRO Trends',
-    description: 'Reviewing the final draft before scheduling.',
-    assignee: { name: 'Ansh', initial: 'A', color: 'bg-blue-500' },
-    tag: { label: 'Newsletter', color: 'text-indigo-400 bg-indigo-400/10' },
-    timeAgo: '3d ago'
-  },
-  {
-    id: 'c6',
-    columnId: 'scheduled',
-    title: 'Twitter Thread: 5 Landing Page Mistakes',
-    description: 'Scheduled for Tuesday morning.',
-    assignee: { name: 'VELO', initial: 'V', color: 'bg-purple-500' },
-    tag: { label: 'Twitter', color: 'text-cyan-400 bg-cyan-400/10' },
-    timeAgo: '4d ago'
-  },
-  {
-    id: 'c7',
-    columnId: 'published',
-    title: 'Case Study: Acme Corp',
-    description: 'Published on the main website.',
-    assignee: { name: 'Ansh', initial: 'A', color: 'bg-blue-500' },
-    tag: { label: 'Website', color: 'text-zinc-400 bg-zinc-400/10' },
-    timeAgo: '1w ago'
-  }
-];
+import { Plus, Filter, Video, CheckCircle } from 'lucide-react';
 
 const COLUMNS = [
   { id: 'idea', title: 'Idea', count: 1, color: 'bg-zinc-500' },
@@ -95,8 +29,51 @@ const COLUMNS = [
 ];
 
 export function ContentPipelineView() {
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_CONTENT);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  const fetchContent = async () => {
+    try {
+      const res = await fetch('/api/content');
+      if (res.ok) {
+        const data = await res.json();
+        // Map API response to Task shape for the kanban
+        const mapped: Task[] = (data as Record<string, unknown>[]).map((item) => ({
+          id: String(item.id),
+          columnId: String(item.stage ?? item.columnId ?? 'idea'),
+          title: String(item.title),
+          description: String(item.description ?? ''),
+          assignee: {
+            name: String(item.assignee ?? 'Ansh'),
+            initial: String(item.assignee ?? 'A').charAt(0).toUpperCase(),
+            color: String(item.assignee ?? 'Ansh') === 'VELO' ? 'bg-purple-500' : 'bg-blue-500',
+          },
+          tag: {
+            label: String(item.content_type ?? item.platform ?? ''),
+            color: 'text-zinc-400 bg-zinc-400/10',
+          },
+          timeAgo: '',
+          status: String(item.status ?? ''),
+        }));
+        setTasks(mapped);
+      }
+    } catch (e) {
+      console.error('Failed to fetch content', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchContent();
+  }, []);
+
+  const handleApprove = async (id: string) => {
+    await fetch('/api/content/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'approved', approved_at: new Date().toISOString(), approved_by: 'Ansh' }),
+    }).catch(console.error);
+    fetchContent();
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
