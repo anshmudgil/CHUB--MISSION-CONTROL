@@ -1,31 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { client, ensureInit } from '@/lib/db';
 import { randomUUID } from 'crypto';
 
 export async function GET(req: NextRequest) {
+  await ensureInit();
   const { searchParams } = new URL(req.url);
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '20', 10), 100);
 
-  const entries = db.prepare(
-    'SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ?'
-  ).all(limit) as Record<string, unknown>[];
+  const result = await client.execute({
+    sql: 'SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ?',
+    args: [limit],
+  });
 
-  return NextResponse.json(entries);
+  return NextResponse.json(result.rows);
 }
 
 export async function POST(req: NextRequest) {
+  await ensureInit();
   const body = await req.json();
   const id = `act-${randomUUID()}`;
 
-  db.prepare(`
-    INSERT INTO activity_log (id, agent_id, action, metadata, timestamp)
-    VALUES (@id, @agent_id, @action, @metadata, @timestamp)
-  `).run({
-    id,
-    agent_id: body.agent || body.agentId || 'system',
-    action: body.action || body.content || '',
-    metadata: JSON.stringify(body.metadata ?? {}),
-    timestamp: new Date().toISOString(),
+  await client.execute({
+    sql: 'INSERT INTO activity_log (id, agent_id, action, metadata, timestamp) VALUES (?, ?, ?, ?, ?)',
+    args: [
+      id,
+      body.agent || body.agentId || 'system',
+      body.action || body.content || '',
+      JSON.stringify(body.metadata ?? {}),
+      new Date().toISOString(),
+    ],
   });
 
   return NextResponse.json({ ok: true, id }, { status: 201 });
