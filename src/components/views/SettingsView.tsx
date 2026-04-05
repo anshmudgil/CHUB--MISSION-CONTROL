@@ -1,7 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Settings, Sliders, Activity, CheckCircle, XCircle, AlertCircle, Github, Slack, Database, Globe, ShoppingBag, FileText, BarChart } from 'lucide-react';
+import { Settings, Sliders, Activity, CheckCircle, XCircle, AlertCircle, Github, Slack, Globe, ShoppingBag, FileText, BarChart } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Toggle } from '@/components/ui/toggle';
+import { Tabs } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/toast';
 
 type IntegrationStatus = 'connected' | 'disconnected' | 'error';
 
@@ -22,128 +27,153 @@ const INTEGRATIONS: Integration[] = [
   { id: 'vercel', name: 'Vercel', icon: Globe, status: 'error', lastSync: 'Failed 2 hours ago' },
 ];
 
+const statusBadge: Record<IntegrationStatus, { variant: 'success' | 'muted' | 'error'; label: string }> = {
+  connected: { variant: 'success', label: 'Connected' },
+  disconnected: { variant: 'muted', label: 'Disconnected' },
+  error: { variant: 'error', label: 'Error' },
+};
+
 export function SettingsView() {
+  const [activeTab, setActiveTab] = useState('ai');
   const [threshold, setThreshold] = useState(80);
   const [experimentFreq, setExperimentFreq] = useState('medium');
   const [approvalGate, setApprovalGate] = useState(true);
+  const [integrations, setIntegrations] = useState(INTEGRATIONS);
+  const { toast } = useToast();
+
+  const handleSave = () => {
+    toast('Settings saved', 'success');
+  };
+
+  const toggleIntegration = (id: string) => {
+    setIntegrations(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      const newStatus: IntegrationStatus = i.status === 'connected' ? 'disconnected' : 'connected';
+      return { ...i, status: newStatus, lastSync: newStatus === 'connected' ? 'Just now' : undefined };
+    }));
+    toast('Integration updated', 'info');
+  };
 
   return (
     <div className="h-full flex flex-col bg-bg-base overflow-hidden">
-      <div className="px-8 py-6 border-b border-border-base bg-bg-panel/50 backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-zinc-500/20 text-zinc-500 flex items-center justify-center border border-zinc-500/30">
-            <Settings size={20} />
+      <div className="px-6 py-5 border-b border-border-base bg-bg-panel/50 backdrop-blur-sm shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-zinc-500/20 text-zinc-400 flex items-center justify-center border border-zinc-500/30">
+              <Settings size={20} />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-text-base tracking-tight">Settings</h1>
+              <p className="text-sm text-text-muted mt-0.5">Manage system configurations and integrations</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-text-base tracking-tight">Settings</h1>
-            <p className="text-sm text-text-muted mt-1">Manage system configurations and integrations</p>
-          </div>
+          <Button size="sm" onClick={handleSave}>Save Changes</Button>
+        </div>
+
+        <div className="mt-5">
+          <Tabs
+            tabs={[
+              { id: 'ai', label: 'AI Configuration' },
+              { id: 'integrations', label: 'Integrations' },
+            ]}
+            activeTab={activeTab}
+            onChange={setActiveTab}
+          />
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="max-w-4xl mx-auto space-y-8">
-          
-          {/* VELO Configuration Panel */}
-          <section className="bg-bg-panel border border-border-base rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-border-base flex items-center gap-2">
-              <Sliders size={18} className="text-blue-500" />
-              <h2 className="text-lg font-medium text-text-base">VELO Agent Configuration</h2>
-            </div>
-            <div className="p-6 space-y-6">
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-medium text-text-base">Confidence Threshold</label>
-                  <span className="text-sm text-text-muted">{threshold}%</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="50" max="100" 
-                  value={threshold} 
-                  onChange={(e) => setThreshold(Number(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
-                <p className="text-xs text-text-muted mt-2">Minimum confidence required for VELO to execute actions autonomously.</p>
+      <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        <div className="max-w-3xl mx-auto">
+          {activeTab === 'ai' && (
+            <section className="bg-bg-panel border border-border-base rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-border-base flex items-center gap-2">
+                <Sliders size={16} className="text-blue-500" />
+                <h2 className="text-sm font-medium text-text-base">VELO Agent Configuration</h2>
               </div>
-
-              <div>
-                <label className="text-sm font-medium text-text-base block mb-2">Experiment Frequency</label>
-                <div className="flex gap-3">
-                  {['low', 'medium', 'high'].map((freq) => (
-                    <button
-                      key={freq}
-                      onClick={() => setExperimentFreq(freq)}
-                      className={`flex-1 py-2 px-4 rounded-md border text-sm capitalize transition-colors ${
-                        experimentFreq === freq 
-                          ? 'bg-blue-500/10 border-blue-500 text-blue-500' 
-                          : 'bg-bg-base border-border-base text-text-muted hover:border-border-strong'
-                      }`}
-                    >
-                      {freq}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-text-muted mt-2">How often VELO should propose new A/B tests or content variations.</p>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-border-base">
+              <div className="p-6 space-y-6">
                 <div>
-                  <h3 className="text-sm font-medium text-text-base">Require Approval Gates</h3>
-                  <p className="text-xs text-text-muted mt-1">Force human review before publishing content or deploying code.</p>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-sm font-medium text-text-base">Confidence Threshold</label>
+                    <span className="text-sm text-text-muted font-mono">{threshold}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="50" max="100"
+                    value={threshold}
+                    onChange={(e) => setThreshold(Number(e.target.value))}
+                    className="w-full accent-accent"
+                  />
+                  <p className="text-xs text-text-muted mt-2">Minimum confidence required for VELO to execute actions autonomously.</p>
                 </div>
-                <button 
-                  onClick={() => setApprovalGate(!approvalGate)}
-                  className={`w-12 h-6 rounded-full transition-colors relative ${approvalGate ? 'bg-blue-500' : 'bg-zinc-600'}`}
-                >
-                  <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${approvalGate ? 'left-7' : 'left-1'}`} />
-                </button>
+
+                <div>
+                  <label className="text-sm font-medium text-text-base block mb-2">Experiment Frequency</label>
+                  <div className="flex gap-2">
+                    {['low', 'medium', 'high'].map((freq) => (
+                      <Button
+                        key={freq}
+                        variant={experimentFreq === freq ? 'primary' : 'secondary'}
+                        size="sm"
+                        onClick={() => setExperimentFreq(freq)}
+                        className="flex-1 capitalize"
+                      >
+                        {freq}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-text-muted mt-2">How often VELO should propose new A/B tests or content variations.</p>
+                </div>
+
+                <div className="pt-4 border-t border-border-base">
+                  <Toggle
+                    checked={approvalGate}
+                    onChange={setApprovalGate}
+                    label="Require Approval Gates"
+                    description="Force human review before publishing content or deploying code."
+                  />
+                </div>
               </div>
+            </section>
+          )}
 
-            </div>
-          </section>
-
-          {/* Integrations Panel */}
-          <section className="bg-bg-panel border border-border-base rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-border-base flex items-center gap-2">
-              <Activity size={18} className="text-emerald-500" />
-              <h2 className="text-lg font-medium text-text-base">Integrations Status</h2>
-            </div>
-            <div className="divide-y divide-border-base">
-              {INTEGRATIONS.map((integration) => (
-                <div key={integration.id} className="p-4 flex items-center justify-between hover:bg-bg-subtle transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-bg-base border border-border-base flex items-center justify-center text-text-base">
-                      <integration.icon size={20} />
+          {activeTab === 'integrations' && (
+            <section className="bg-bg-panel border border-border-base rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-border-base flex items-center gap-2">
+                <Activity size={16} className="text-emerald-500" />
+                <h2 className="text-sm font-medium text-text-base">Integrations Status</h2>
+              </div>
+              <div className="divide-y divide-border-base">
+                {integrations.map((integration) => {
+                  const badge = statusBadge[integration.status];
+                  return (
+                    <div key={integration.id} className="p-4 flex items-center justify-between hover:bg-bg-subtle transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-bg-base border border-border-base flex items-center justify-center text-text-base">
+                          <integration.icon size={18} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-medium text-text-base">{integration.name}</h3>
+                          {integration.lastSync && (
+                            <p className="text-xs text-text-muted">Last sync: {integration.lastSync}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant={badge.variant} dot>{badge.label}</Badge>
+                        <Button
+                          variant={integration.status === 'connected' ? 'ghost' : 'secondary'}
+                          size="sm"
+                          onClick={() => toggleIntegration(integration.id)}
+                        >
+                          {integration.status === 'connected' ? 'Disconnect' : 'Connect'}
+                        </Button>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-text-base">{integration.name}</h3>
-                      <p className="text-xs text-text-muted">Last sync: {integration.lastSync}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    {integration.status === 'connected' && (
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-full">
-                        <CheckCircle size={14} /> Connected
-                      </span>
-                    )}
-                    {integration.status === 'disconnected' && (
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-500/10 px-2.5 py-1 rounded-full">
-                        <XCircle size={14} /> Disconnected
-                      </span>
-                    )}
-                    {integration.status === 'error' && (
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-red-500 bg-red-500/10 px-2.5 py-1 rounded-full">
-                        <AlertCircle size={14} /> Error
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
