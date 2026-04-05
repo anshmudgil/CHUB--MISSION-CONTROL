@@ -5,11 +5,10 @@ import { usePathname } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   LayoutGrid, Bot, GitMerge, CheckCircle, Crown, Calendar,
-  Brain, Users, Settings, BookOpen, LogOut, ChevronsLeft, ChevronsRight,
+  Brain, Users, Key, BookOpen, LogOut, ChevronsLeft, ChevronsRight, Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/tooltip';
-import { Avatar } from '@/components/ui/avatar';
 
 const navGroups = [
   {
@@ -17,6 +16,7 @@ const navGroups = [
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, href: '/' },
       { id: 'tasks', label: 'Tasks Board', icon: CheckCircle, href: '/tasks' },
+      { id: 'planning', label: 'Planning', icon: Target, href: '/planning' },
       { id: 'content-pipeline', label: 'Content Pipeline', icon: GitMerge, href: '/content-pipeline' },
       { id: 'journal', label: 'Journal', icon: BookOpen, href: '/journal' },
     ],
@@ -39,7 +39,7 @@ const navGroups = [
   {
     label: 'System',
     items: [
-      { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
+      { id: 'integrations', label: 'Integrations', icon: Key, href: '/integrations' },
     ],
   },
 ];
@@ -126,20 +126,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       {/* Bottom section */}
-      <div className={cn('border-t border-border-base', collapsed ? 'p-2' : 'p-3')}>
+      <div className="border-t border-border-base">
         <a
           href="/api/auth/logout"
           className={cn(
-            'flex items-center gap-2 text-sm text-text-muted hover:text-text-base rounded-lg hover:bg-bg-panel transition-colors',
-            collapsed ? 'justify-center p-2' : 'px-3 py-2'
+            'flex items-center gap-2 text-sm text-text-muted hover:text-text-base hover:bg-bg-panel transition-colors',
+            collapsed ? 'justify-center p-2' : 'px-3 py-2 w-full'
           )}
         >
           <LogOut size={16} />
           {!collapsed && <span>Logout</span>}
         </a>
-        <div className={cn('mt-2', collapsed ? 'flex justify-center' : 'px-1')}>
-          <Avatar name="Ansh" color="bg-emerald-500/20 text-emerald-400" size={collapsed ? 'md' : 'md'} />
-        </div>
       </div>
     </motion.div>
   );

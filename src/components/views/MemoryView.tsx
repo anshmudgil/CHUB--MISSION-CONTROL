@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, FileText, Database, BrainCircuit, Hash, Clock, X, Save, CheckCircle2 } from 'lucide-react';
+import { Search, FileText, BrainCircuit, Clock, X, Save, CheckCircle2 } from 'lucide-react';
 import { DOCS } from '@/data/initial';
 import { Doc } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -10,13 +10,64 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
 import { staggerContainer, staggerItem } from '@/lib/motion';
+import { cn } from '@/lib/utils';
+
+// Timeframe tab config
+const TIMEFRAME_TABS = [
+  { label: 'Today', days: 1 },
+  { label: 'This Week', days: 7 },
+  { label: 'This Month', days: 30 },
+  { label: 'All', days: 0 },
+];
+
+// Group docs by date into labelled sections
+function groupDocsByDate(docs: Doc[]): { label: string; docs: Doc[] }[] {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - 6); // last 7 days excluding today/yesterday
+  const startOfMonth = new Date(startOfToday);
+  startOfMonth.setDate(startOfMonth.getDate() - 30);
+
+  const groups: { label: string; docs: Doc[] }[] = [
+    { label: 'Today', docs: [] },
+    { label: 'Yesterday', docs: [] },
+    { label: 'This Week', docs: [] },
+    { label: 'This Month', docs: [] },
+    { label: 'Older', docs: [] },
+  ];
+
+  for (const doc of docs) {
+    const docDate = new Date(doc.date);
+    if (isNaN(docDate.getTime())) {
+      groups[4].docs.push(doc);
+      continue;
+    }
+    const docDay = new Date(docDate.getFullYear(), docDate.getMonth(), docDate.getDate());
+    if (docDay >= startOfToday) {
+      groups[0].docs.push(doc);
+    } else if (docDay >= startOfYesterday) {
+      groups[1].docs.push(doc);
+    } else if (docDay >= startOfWeek) {
+      groups[2].docs.push(doc);
+    } else if (docDay >= startOfMonth) {
+      groups[3].docs.push(doc);
+    } else {
+      groups[4].docs.push(doc);
+    }
+  }
+
+  return groups.filter((g) => g.docs.length > 0);
+}
 
 export function MemoryView() {
   const [docs, setDocs] = useState<Doc[]>(DOCS);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'size'>('date');
-  const [activeTimeframe, setActiveTimeframe] = useState<string>('All Time');
+  const [activeTimeframe, setActiveTimeframe] = useState<string>('All');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editTitle, setEditTitle] = useState('');
@@ -24,36 +75,34 @@ export function MemoryView() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const categories = useMemo(() => Array.from(new Set(docs.map(doc => doc.tag))), [docs]);
-  const timeframes = ['7D', '30D', '90D', 'All Time'];
+  const categories = useMemo(() => Array.from(new Set(docs.map((doc) => doc.tag))), [docs]);
 
   const filteredAndSortedDocs = useMemo(() => {
     let result = docs;
 
     if (activeCategory) {
-      result = result.filter(doc => doc.tag === activeCategory);
+      result = result.filter((doc) => doc.tag === activeCategory);
     }
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(doc =>
-        doc.title.toLowerCase().includes(query) ||
-        doc.content.toLowerCase().includes(query) ||
-        doc.tag.toLowerCase().includes(query)
+      result = result.filter(
+        (doc) =>
+          doc.title.toLowerCase().includes(query) ||
+          doc.content.toLowerCase().includes(query) ||
+          doc.tag.toLowerCase().includes(query)
       );
     }
 
     // Timeframe filtering
-    if (activeTimeframe !== 'All Time') {
-      const days = parseInt(activeTimeframe);
-      if (!isNaN(days)) {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
-        result = result.filter(doc => {
-          const docDate = new Date(doc.date);
-          return !isNaN(docDate.getTime()) ? docDate >= cutoff : true;
-        });
-      }
+    const tf = TIMEFRAME_TABS.find((t) => t.label === activeTimeframe);
+    if (tf && tf.days > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - tf.days);
+      result = result.filter((doc) => {
+        const docDate = new Date(doc.date);
+        return !isNaN(docDate.getTime()) ? docDate >= cutoff : true;
+      });
     }
 
     return [...result].sort((a, b) => {
@@ -63,14 +112,23 @@ export function MemoryView() {
     });
   }, [docs, searchQuery, activeCategory, sortBy, activeTimeframe]);
 
+  const groupedDocs = useMemo(() => groupDocsByDate(filteredAndSortedDocs), [filteredAndSortedDocs]);
+
   const saveDocument = () => {
     if (!editingDoc) return;
     setIsSaving(true);
-    setDocs(prevDocs => prevDocs.map(doc =>
-      doc.id === editingDoc.id
-        ? { ...doc, title: editTitle, content: editContent, words: editContent.split(/\s+/).filter(w => w.length > 0).length }
-        : doc
-    ));
+    setDocs((prevDocs) =>
+      prevDocs.map((doc) =>
+        doc.id === editingDoc.id
+          ? {
+              ...doc,
+              title: editTitle,
+              content: editContent,
+              words: editContent.split(/\s+/).filter((w) => w.length > 0).length,
+            }
+          : doc
+      )
+    );
     setLastSaved(new Date());
     setTimeout(() => setIsSaving(false), 500);
   };
@@ -126,7 +184,11 @@ export function MemoryView() {
               className="bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base cursor-pointer focus:outline-none"
             >
               <option value="">All Categories</option>
-              {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
             </select>
             <select
               value={sortBy}
@@ -139,28 +201,31 @@ export function MemoryView() {
             </select>
           </div>
 
-          {/* Timeframe Filters */}
+          {/* Timeframe Tabs */}
           <div className="flex items-center gap-2">
             <Clock size={12} className="text-text-muted" />
-            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mr-1">Timeframe:</span>
-            {timeframes.map(tf => (
+            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mr-1">
+              Timeframe:
+            </span>
+            {TIMEFRAME_TABS.map((tf) => (
               <button
-                key={tf}
-                onClick={() => setActiveTimeframe(tf)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  activeTimeframe === tf
+                key={tf.label}
+                onClick={() => setActiveTimeframe(tf.label)}
+                className={cn(
+                  'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  activeTimeframe === tf.label
                     ? 'bg-text-base text-bg-base'
                     : 'text-text-muted hover:text-text-base hover:bg-bg-panel'
-                }`}
+                )}
               >
-                {tf}
+                {tf.label}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Document Grid */}
+      {/* Timeline */}
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
         {filteredAndSortedDocs.length === 0 ? (
           <EmptyState
@@ -169,43 +234,71 @@ export function MemoryView() {
             description="Try adjusting your search or timeframe filter."
           />
         ) : (
-          <motion.div
-            variants={staggerContainer}
-            initial="hidden"
-            animate="visible"
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-          >
-            {filteredAndSortedDocs.map(doc => (
-              <motion.div
-                key={doc.id}
-                variants={staggerItem}
-                onClick={() => handleOpenEditor(doc)}
-                className="bg-bg-panel border border-border-base rounded-xl p-5 flex flex-col gap-3 shadow-elevation-card-rest hover:shadow-elevation-card-hover hover:border-border-strong transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-bg-subtle border border-border-base flex items-center justify-center text-text-muted group-hover:text-accent transition-colors shrink-0">
-                    <FileText size={16} />
+          <div className="max-w-3xl mx-auto">
+            <motion.div variants={staggerContainer} initial="hidden" animate="visible">
+              {groupedDocs.map((group) => (
+                <div key={group.label} className="mb-2">
+                  {/* Section header */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-px flex-1 bg-border-base" />
+                    <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider shrink-0">
+                      {group.label}
+                    </span>
+                    <div className="h-px flex-1 bg-border-base" />
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-medium text-text-base truncate">{doc.title}</h3>
-                    <p className="text-[10px] text-text-muted">{doc.date}</p>
-                  </div>
-                </div>
 
-                <p className="text-xs text-text-muted line-clamp-3 leading-relaxed flex-1">
-                  {doc.content.replace(/#/g, '').trim()}
-                </p>
+                  {/* Timeline items */}
+                  {group.docs.map((doc) => {
+                    const isDaily = doc.tag === 'Daily Summary';
+                    return (
+                      <motion.div key={doc.id} variants={staggerItem} className="flex gap-4 relative">
+                        {/* Timeline spine */}
+                        <div className="flex flex-col items-center">
+                          <div
+                            className={cn(
+                              'w-3 h-3 rounded-full border-2 border-bg-base mt-1 shrink-0 z-10',
+                              isDaily ? 'bg-amber-500' : 'bg-border-strong'
+                            )}
+                          />
+                          <div className="w-px flex-1 bg-border-base mt-1" />
+                        </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-border-base">
-                  <div className="flex items-center gap-3 text-[10px] text-text-muted">
-                    <span className="flex items-center gap-1"><Database size={10} /> {doc.size}</span>
-                    <span className="flex items-center gap-1"><Hash size={10} /> {doc.words}w</span>
-                  </div>
-                  <Badge variant="muted">{doc.tag}</Badge>
+                        {/* Card */}
+                        <div className="flex-1 pb-6" onClick={() => handleOpenEditor(doc)}>
+                          <div
+                            className={cn(
+                              'bg-bg-panel border border-border-base rounded-xl p-4 cursor-pointer hover:border-border-strong hover:shadow-elevation-card-hover transition-all group',
+                              isDaily && 'border-l-4 border-l-amber-500/60'
+                            )}
+                          >
+                            {/* Header row */}
+                            <div className="flex items-start justify-between gap-3 mb-2">
+                              <h3 className="text-sm font-medium text-text-base group-hover:text-accent transition-colors">
+                                {doc.title}
+                              </h3>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Badge variant="muted">{doc.tag}</Badge>
+                                <span className="text-[10px] text-text-muted">{doc.date}</span>
+                              </div>
+                            </div>
+                            {/* Preview */}
+                            <p className="text-xs text-text-muted line-clamp-2 leading-relaxed">
+                              {doc.content.replace(/#/g, '').trim()}
+                            </p>
+                            {/* Footer */}
+                            <div className="flex items-center gap-3 mt-3 text-[10px] text-text-muted">
+                              <span>{doc.words}w</span>
+                              <span>{doc.size}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
-              </motion.div>
-            ))}
-          </motion.div>
+              ))}
+            </motion.div>
+          </div>
         )}
       </div>
 
@@ -236,11 +329,18 @@ export function MemoryView() {
                     {isSaving ? (
                       <span className="text-amber-500">Saving...</span>
                     ) : lastSaved ? (
-                      <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12} /> Saved</span>
+                      <span className="text-emerald-500 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Saved
+                      </span>
                     ) : null}
                   </div>
-                  <Button variant="secondary" size="sm" onClick={saveDocument}><Save size={14} /> Save</Button>
-                  <button onClick={handleCloseEditor} className="p-1.5 text-text-muted hover:text-text-base hover:bg-bg-base rounded-md transition-colors">
+                  <Button variant="secondary" size="sm" onClick={saveDocument}>
+                    <Save size={14} /> Save
+                  </Button>
+                  <button
+                    onClick={handleCloseEditor}
+                    className="p-1.5 text-text-muted hover:text-text-base hover:bg-bg-base rounded-md transition-colors"
+                  >
                     <X size={18} />
                   </button>
                 </div>
@@ -258,7 +358,7 @@ export function MemoryView() {
 
               {/* Word count */}
               <div className="px-6 py-2 border-t border-border-base bg-bg-subtle text-xs text-text-muted">
-                {editContent.split(/\s+/).filter(w => w.length > 0).length} words
+                {editContent.split(/\s+/).filter((w) => w.length > 0).length} words
               </div>
             </motion.div>
           </div>

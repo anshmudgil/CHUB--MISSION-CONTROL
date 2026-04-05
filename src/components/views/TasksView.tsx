@@ -21,9 +21,10 @@ import { DropdownMenu, DropdownItem, DropdownSeparator } from '@/components/ui/d
 import { useToast } from '@/components/ui/toast';
 import { motion } from 'motion/react';
 import { staggerContainer, staggerItem } from '@/lib/motion';
+import { cn } from '@/lib/utils';
 import {
   Plus, ChevronDown, X, Calendar, Flag, User,
-  MessageSquare, Trash2, CheckCircle, Edit2, ArrowRightLeft
+  MessageSquare, Trash2, CheckCircle, Edit2, ArrowRightLeft, PanelLeft
 } from 'lucide-react';
 
 const COLUMNS = [
@@ -58,6 +59,9 @@ export function TasksView() {
   const [newTaskDue, setNewTaskDue] = useState('');
   const [newTaskColumnId, setNewTaskColumnId] = useState('backlog');
   const [newTaskSubmitting, setNewTaskSubmitting] = useState(false);
+
+  // Projects sidebar panel
+  const [projectsPanelOpen, setProjectsPanelOpen] = useState(false);
 
   // Status change dropdown for task detail
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
@@ -99,6 +103,17 @@ export function TasksView() {
 
   useEffect(() => {
     fetchTasks();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setIsNewTaskModalOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const sensors = useSensors(
@@ -456,6 +471,9 @@ export function TasksView() {
           <Button onClick={() => setIsNewTaskModalOpen(true)} size="md">
             <Plus size={16} /> New task
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => setProjectsPanelOpen(p => !p)}>
+            <PanelLeft size={16} /> Projects
+          </Button>
           <div className="flex items-center gap-4 text-sm text-text-muted">
             {uniqueAssignees.map(assignee => (
               <button
@@ -487,38 +505,74 @@ export function TasksView() {
           </div>
         </div>
 
-        {/* Kanban Board */}
-        <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8 custom-scrollbar">
-          <div className="flex gap-6 h-full">
-            <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-              <SortableContext items={COLUMNS.map(c => c.id)}>
-                {COLUMNS.map(col => (
-                  <KanbanColumn
-                    key={col.id}
-                    column={col}
-                    tasks={filteredTasks.filter(t => t.columnId === col.id)}
-                    onTaskClick={setSelectedTask}
-                    onTaskEdit={(task) => {
-                      setSelectedTask(task);
-                      setIsEditing(true);
-                      setEditTitle(task.title);
-                      setEditDescription(task.description || '');
-                    }}
-                    onTaskDelete={handleDeleteTask}
-                    onTaskChangeStatus={(task) => {
-                      // Cycle to next column
-                      const currentIndex = COLUMNS.findIndex(c => c.id === task.columnId);
-                      const nextIndex = (currentIndex + 1) % COLUMNS.length;
-                      handleChangeStatus(task, COLUMNS[nextIndex].id);
-                    }}
-                    onAddTask={() => openNewTaskForColumn(col.id)}
-                  />
+        {/* Kanban Board + Projects Panel */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Projects Sidebar Panel */}
+          {projectsPanelOpen && (
+            <div className="w-48 shrink-0 bg-bg-panel border-r border-border-base flex flex-col overflow-hidden">
+              <div className="px-4 py-3 border-b border-border-base flex items-center justify-between">
+                <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Projects</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                <button
+                  onClick={() => setProjectFilter(null)}
+                  className={cn('w-full text-left px-3 py-2 rounded-md text-sm transition-colors', !projectFilter ? 'bg-bg-subtle text-text-base' : 'text-text-muted hover:text-text-base hover:bg-bg-subtle')}
+                >
+                  All Projects
+                  <span className="ml-auto text-xs text-text-muted float-right">{tasks.length}</span>
+                </button>
+                {uniqueProjects.map(project => (
+                  <button
+                    key={project}
+                    onClick={() => setProjectFilter(project)}
+                    className={cn('w-full text-left px-3 py-2 rounded-md text-sm transition-colors', projectFilter === project ? 'bg-bg-subtle text-text-base' : 'text-text-muted hover:text-text-base hover:bg-bg-subtle')}
+                  >
+                    <span className="truncate">{project}</span>
+                    <span className="ml-auto text-xs text-text-muted float-right">
+                      {tasks.filter(t => t.project === project).length}
+                    </span>
+                  </button>
                 ))}
-              </SortableContext>
-              <DragOverlay>
-                {activeTask ? <KanbanCard task={activeTask} isOverlay /> : null}
-              </DragOverlay>
-            </DndContext>
+                {uniqueProjects.length === 0 && (
+                  <p className="text-xs text-text-muted px-3 py-2">No projects yet</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Kanban Board */}
+          <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8 custom-scrollbar">
+            <div className="flex gap-6 h-full">
+              <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+                <SortableContext items={COLUMNS.map(c => c.id)}>
+                  {COLUMNS.map(col => (
+                    <KanbanColumn
+                      key={col.id}
+                      column={col}
+                      tasks={filteredTasks.filter(t => t.columnId === col.id)}
+                      onTaskClick={setSelectedTask}
+                      onTaskEdit={(task) => {
+                        setSelectedTask(task);
+                        setIsEditing(true);
+                        setEditTitle(task.title);
+                        setEditDescription(task.description || '');
+                      }}
+                      onTaskDelete={handleDeleteTask}
+                      onTaskChangeStatus={(task) => {
+                        // Cycle to next column
+                        const currentIndex = COLUMNS.findIndex(c => c.id === task.columnId);
+                        const nextIndex = (currentIndex + 1) % COLUMNS.length;
+                        handleChangeStatus(task, COLUMNS[nextIndex].id);
+                      }}
+                      onAddTask={() => openNewTaskForColumn(col.id)}
+                    />
+                  ))}
+                </SortableContext>
+                <DragOverlay>
+                  {activeTask ? <KanbanCard task={activeTask} isOverlay /> : null}
+                </DragOverlay>
+              </DndContext>
+            </div>
           </div>
         </div>
       </div>

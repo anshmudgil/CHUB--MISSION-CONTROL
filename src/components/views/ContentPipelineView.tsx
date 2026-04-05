@@ -79,6 +79,7 @@ export function ContentPipelineView() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [newContentColumnId, setNewContentColumnId] = useState('idea');
   const [filterType, setFilterType] = useState<ContentType | 'all'>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -116,6 +117,17 @@ export function ContentPipelineView() {
 
   useEffect(() => {
     fetchContent();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setShowNewModal(true);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // --- Dynamic metrics ---
@@ -159,7 +171,7 @@ export function ContentPipelineView() {
           description: formDescription.trim(),
           assignee: formAssignee,
           target_date: formDate || undefined,
-          stage: 'idea',
+          stage: newContentColumnId,
         }),
       });
       if (res.ok) {
@@ -305,9 +317,10 @@ export function ContentPipelineView() {
             )}
           </div>
 
-          <Button variant="primary" size="sm" onClick={() => setShowNewModal(true)}>
+          <Button variant="primary" size="md" onClick={() => setShowNewModal(true)}>
             <Plus size={16} />
             New Content
+            <span className="ml-1 text-xs opacity-60">⌘N</span>
           </Button>
         </div>
       </div>
@@ -348,14 +361,14 @@ export function ContentPipelineView() {
       )}
 
       {/* Kanban Board */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden min-h-0 custom-scrollbar">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-6 h-full items-start">
+          <div className="flex gap-4 p-6 min-w-max h-full">
             {columnsWithCounts.map(col => {
               const colTasks = filteredTasks.filter(t => t.columnId === col.id);
               const isReviewColumn = col.id === 'review';
@@ -371,6 +384,10 @@ export function ContentPipelineView() {
                   onTaskChangeStatus={(task) => {
                     if (isReviewColumn) handleApprove(task.id);
                   }}
+                  onAddTask={() => {
+                    setNewContentColumnId(col.id);
+                    setShowNewModal(true);
+                  }}
                 />
               );
             })}
@@ -383,8 +400,8 @@ export function ContentPipelineView() {
       </div>
 
       {/* New Content Modal */}
-      <Modal open={showNewModal} onClose={() => { setShowNewModal(false); resetForm(); }}>
-        <ModalHeader onClose={() => { setShowNewModal(false); resetForm(); }}>
+      <Modal open={showNewModal} onClose={() => { setShowNewModal(false); resetForm(); setNewContentColumnId('idea'); }}>
+        <ModalHeader onClose={() => { setShowNewModal(false); resetForm(); setNewContentColumnId('idea'); }}>
           <h2 className="text-lg font-semibold text-text-base">New Content</h2>
           <p className="text-sm text-text-muted mt-0.5">Add a new piece of content to the pipeline</p>
         </ModalHeader>
@@ -400,6 +417,12 @@ export function ContentPipelineView() {
             value={formType}
             onChange={e => setFormType(e.target.value as ContentType)}
             options={CONTENT_TYPES.map(ct => ({ value: ct, label: ct }))}
+          />
+          <Select
+            label="Stage"
+            value={newContentColumnId}
+            onChange={e => setNewContentColumnId(e.target.value)}
+            options={COLUMNS.map(col => ({ value: col.id, label: col.title }))}
           />
           <Textarea
             label="Description"
@@ -425,7 +448,7 @@ export function ContentPipelineView() {
           />
         </ModalBody>
         <ModalFooter>
-          <Button variant="secondary" onClick={() => { setShowNewModal(false); resetForm(); }}>
+          <Button variant="secondary" onClick={() => { setShowNewModal(false); resetForm(); setNewContentColumnId('idea'); }}>
             Cancel
           </Button>
           <Button variant="primary" loading={submitting} onClick={handleCreate}>
