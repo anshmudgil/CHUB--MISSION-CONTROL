@@ -2,7 +2,7 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Roboto Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --color-zinc-50: #fafafa;
   --color-zinc-100: #f4f4f5;
@@ -27,6 +27,9 @@
 
   --shadow-elevation-card-rest: 0px 1px 2px 0px rgba(0, 0, 0, 0.4), inset 0px 1px 0px 0px rgba(255, 255, 255, 0.04);
   --shadow-elevation-card-hover: 0px 4px 8px 0px rgba(0, 0, 0, 0.4), inset 0px 1px 0px 0px rgba(255, 255, 255, 0.04);
+  --shadow-elevation-modal: 0px 16px 48px 0px rgba(0, 0, 0, 0.6), 0px 2px 8px 0px rgba(0, 0, 0, 0.4), inset 0px 1px 0px 0px rgba(255, 255, 255, 0.04);
+  --shadow-elevation-popover: 0px 8px 24px 0px rgba(0, 0, 0, 0.5), inset 0px 1px 0px 0px rgba(255, 255, 255, 0.04);
+  --shadow-elevation-dialog: 0px 24px 64px 0px rgba(0, 0, 0, 0.7), 0px 4px 16px 0px rgba(0, 0, 0, 0.4);
 }
 
 body {
@@ -54,4 +57,31 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
+}
+
+/* Pulse glow for live indicators */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50% { opacity: 0.8; box-shadow: 0 0 8px 2px currentColor; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-subtle) 25%,
+    var(--color-zinc-800) 50%,
+    var(--color-bg-subtle) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }

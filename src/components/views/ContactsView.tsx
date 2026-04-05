@@ -1,159 +1,254 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Mail, MessageSquare, Clock, MapPin, Plus } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Search, Mail, Clock, Plus, X } from 'lucide-react';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Button } from '@/components/ui/button';
+import { Input, Textarea, Select } from '@/components/ui/input';
+import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useToast } from '@/components/ui/toast';
+import { staggerContainer, staggerItem } from '@/lib/motion';
 
 type Contact = {
   id: string;
   name: string;
   role: string;
-  category: 'Internal Team' | 'Content Team' | 'External Contacts' | 'Clients';
+  category: string;
   handle: string;
   timezone: string;
   notes?: string;
-  avatar: string;
 };
 
-const MOCK_CONTACTS: Contact[] = [
-  { id: '1', name: 'Henry', role: 'Chief of Staff', category: 'Internal Team', handle: '@henry_os', timezone: 'PST (UTC-8)', notes: 'Primary orchestrator', avatar: 'H' },
-  { id: '2', name: 'Charlie', role: 'Infrastructure Engineer', category: 'Internal Team', handle: '@charlie_infra', timezone: 'EST (UTC-5)', notes: 'Handles local models', avatar: 'C' },
-  { id: '3', name: 'Sarah Jenkins', role: 'Video Editor', category: 'Content Team', handle: 'sarah@example.com', timezone: 'GMT (UTC+0)', notes: 'Prefers async communication', avatar: 'S' },
-  { id: '4', name: 'David Chen', role: 'Sponsorships', category: 'External Contacts', handle: 'david.c@agency.com', timezone: 'PST (UTC-8)', avatar: 'D' },
-  { id: '5', name: 'Acme Corp', role: 'Enterprise Client', category: 'Clients', handle: 'team@acme.com', timezone: 'CST (UTC-6)', notes: 'Monthly retainer', avatar: 'A' },
+const DEFAULT_CONTACTS: Contact[] = [
+  { id: '1', name: 'Henry', role: 'Chief of Staff', category: 'Internal Team', handle: '@henry_os', timezone: 'PST (UTC-8)', notes: 'Primary orchestrator' },
+  { id: '2', name: 'Charlie', role: 'Infrastructure Engineer', category: 'Internal Team', handle: '@charlie_infra', timezone: 'EST (UTC-5)', notes: 'Handles local models' },
+  { id: '3', name: 'Sarah Jenkins', role: 'Video Editor', category: 'Content Team', handle: 'sarah@example.com', timezone: 'GMT (UTC+0)', notes: 'Prefers async communication' },
+  { id: '4', name: 'David Chen', role: 'Sponsorships', category: 'External Contacts', handle: 'david.c@agency.com', timezone: 'PST (UTC-8)' },
+  { id: '5', name: 'Acme Corp', role: 'Enterprise Client', category: 'Clients', handle: 'team@acme.com', timezone: 'CST (UTC-6)', notes: 'Monthly retainer' },
 ];
 
-export function ContactsView() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'name' | 'role'>('name');
+const CATEGORIES = ['Internal Team', 'Content Team', 'External Contacts', 'Clients'];
 
-  const categories = ['Internal Team', 'Content Team', 'External Contacts', 'Clients'];
+export function ContactsView() {
+  const [contacts, setContacts] = useState<Contact[]>(DEFAULT_CONTACTS);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string>('');
+  const [sortBy, setSortBy] = useState<string>('name');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const { toast } = useToast();
+
+  // New contact form
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('');
+  const [newCategory, setNewCategory] = useState('Internal Team');
+  const [newHandle, setNewHandle] = useState('');
+  const [newTimezone, setNewTimezone] = useState('');
+  const [newNotes, setNewNotes] = useState('');
 
   const filteredAndSortedContacts = useMemo(() => {
-    let result = MOCK_CONTACTS;
-
-    if (activeCategory) {
-      result = result.filter(c => c.category === activeCategory);
-    }
-
+    let result = contacts;
+    if (activeCategory) result = result.filter(c => c.category === activeCategory);
     if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(c => 
-        c.name.toLowerCase().includes(query) || 
-        c.role.toLowerCase().includes(query) ||
-        c.notes?.toLowerCase().includes(query)
+      const q = searchQuery.toLowerCase();
+      result = result.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        c.role.toLowerCase().includes(q) ||
+        c.notes?.toLowerCase().includes(q)
       );
     }
+    return [...result].sort((a, b) =>
+      sortBy === 'name' ? a.name.localeCompare(b.name) : a.role.localeCompare(b.role)
+    );
+  }, [contacts, searchQuery, activeCategory, sortBy]);
 
-    result = [...result].sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      return a.role.localeCompare(b.role);
-    });
-
-    return result;
-  }, [searchQuery, activeCategory, sortBy]);
+  const handleAddContact = () => {
+    if (!newName.trim()) return;
+    const contact: Contact = {
+      id: Date.now().toString(),
+      name: newName,
+      role: newRole,
+      category: newCategory,
+      handle: newHandle,
+      timezone: newTimezone,
+      notes: newNotes || undefined,
+    };
+    setContacts(prev => [...prev, contact]);
+    setShowAddModal(false);
+    setNewName(''); setNewRole(''); setNewHandle(''); setNewTimezone(''); setNewNotes('');
+    toast('Contact added', 'success');
+  };
 
   return (
     <div className="h-full flex flex-col bg-bg-base overflow-hidden">
       {/* Header */}
-      <div className="px-8 py-6 border-b border-border-base bg-bg-panel/50 backdrop-blur-sm shrink-0">
-        <div className="flex items-center justify-between mb-6">
+      <div className="px-6 py-5 border-b border-border-base bg-bg-panel/50 backdrop-blur-sm shrink-0">
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-500 flex items-center justify-center border border-blue-500/30">
-              <MessageSquare size={20} />
+              <Mail size={20} />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold text-text-base tracking-tight">Contacts & CRM</h1>
-              <p className="text-sm text-text-muted mt-1">Manage your network and team directory</p>
+              <h1 className="text-xl font-semibold text-text-base tracking-tight">Contacts & CRM</h1>
+              <p className="text-sm text-text-muted mt-0.5">Manage your network and team directory</p>
             </div>
           </div>
-          <button className="bg-accent hover:bg-accent/90 text-white px-4 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors shadow-elevation-card-rest">
-            <Plus size={16} /> Add Contact
-          </button>
+          <Button onClick={() => setShowAddModal(true)} size="sm"><Plus size={14} /> Add Contact</Button>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="flex-1 relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input 
-              type="text" 
-              placeholder="Search contacts by name, role, or notes..." 
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <input
+              type="text"
+              placeholder="Search contacts..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-bg-subtle border border-border-base rounded-lg pl-10 pr-4 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong transition-all shadow-inner"
+              className="w-full bg-bg-subtle border border-border-base rounded-lg pl-9 pr-4 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong transition-all"
             />
           </div>
-          
-          <div className="flex items-center gap-2">
-            <select 
-              value={activeCategory || ''} 
-              onChange={(e) => setActiveCategory(e.target.value || null)}
-              className="bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong shadow-elevation-card-rest cursor-pointer"
-            >
-              <option value="">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-
-            <select 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong shadow-elevation-card-rest cursor-pointer"
-            >
-              <option value="name">Sort by Name</option>
-              <option value="role">Sort by Role</option>
-            </select>
-          </div>
+          <select
+            value={activeCategory}
+            onChange={(e) => setActiveCategory(e.target.value)}
+            className="bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base cursor-pointer focus:outline-none"
+          >
+            <option value="">All Categories</option>
+            {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-bg-panel border border-border-base rounded-lg px-3 py-2 text-sm text-text-base cursor-pointer focus:outline-none"
+          >
+            <option value="name">Sort by Name</option>
+            <option value="role">Sort by Role</option>
+          </select>
         </div>
       </div>
 
-      {/* Results */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredAndSortedContacts.map(contact => (
-            <div key={contact.id} className="bg-bg-panel border border-border-base rounded-xl p-5 flex flex-col shadow-elevation-card-rest hover:shadow-elevation-card-hover hover:border-border-strong transition-all cursor-pointer group">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-bg-subtle border border-border-base flex items-center justify-center text-text-base font-medium">
-                    {contact.avatar}
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        {filteredAndSortedContacts.length === 0 ? (
+          <EmptyState
+            icon={<Search size={32} />}
+            title="No contacts found"
+            description="Try adjusting your search or add a new contact."
+            action={<Button size="sm" onClick={() => setShowAddModal(true)}><Plus size={14} /> Add Contact</Button>}
+          />
+        ) : (
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            animate="visible"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+          >
+            {filteredAndSortedContacts.map(contact => (
+              <motion.div
+                key={contact.id}
+                variants={staggerItem}
+                onClick={() => setSelectedContact(contact)}
+                className="bg-bg-panel border border-border-base rounded-xl p-5 flex flex-col shadow-elevation-card-rest hover:shadow-elevation-card-hover hover:border-border-strong transition-all cursor-pointer"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={contact.name} size="lg" />
+                    <div>
+                      <h3 className="text-sm font-medium text-text-base">{contact.name}</h3>
+                      <p className="text-xs text-text-muted">{contact.role}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-text-base">{contact.name}</h3>
-                    <p className="text-xs text-text-muted">{contact.role}</p>
-                  </div>
+                  <Badge variant="muted">{contact.category}</Badge>
                 </div>
-                <span className="text-[10px] font-medium px-2 py-1 rounded-md bg-bg-subtle border border-border-base text-text-muted">
-                  {contact.category}
-                </span>
-              </div>
-              
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center gap-2 text-xs text-text-muted">
-                  <Mail size={14} className="text-text-muted" />
-                  <span>{contact.handle}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-text-muted">
-                  <Clock size={14} className="text-text-muted" />
-                  <span>{contact.timezone}</span>
-                </div>
-                {contact.notes && (
-                  <div className="mt-4 pt-4 border-t border-border-base">
-                    <p className="text-xs text-text-muted line-clamp-2 italic">"{contact.notes}"</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
 
-          {filteredAndSortedContacts.length === 0 && (
-            <div className="col-span-full py-12 flex flex-col items-center justify-center text-text-muted">
-              <Search size={32} className="mb-4 opacity-20" />
-              <p>No contacts found matching your search.</p>
-            </div>
-          )}
-        </div>
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2 text-xs text-text-muted">
+                    <Mail size={12} />
+                    <span className="truncate">{contact.handle}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-text-muted">
+                    <Clock size={12} />
+                    <span>{contact.timezone}</span>
+                  </div>
+                  {contact.notes && (
+                    <div className="mt-3 pt-3 border-t border-border-base">
+                      <p className="text-xs text-text-muted line-clamp-2 italic">&ldquo;{contact.notes}&rdquo;</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
       </div>
+
+      {/* Add Contact Modal */}
+      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} size="md">
+        <ModalHeader onClose={() => setShowAddModal(false)}>
+          <h2 className="text-lg font-semibold text-text-base">Add Contact</h2>
+        </ModalHeader>
+        <ModalBody className="space-y-4">
+          <Input label="Name" placeholder="Contact name" value={newName} onChange={e => setNewName(e.target.value)} />
+          <Input label="Role" placeholder="Role or title" value={newRole} onChange={e => setNewRole(e.target.value)} />
+          <Select
+            label="Category"
+            value={newCategory}
+            onChange={e => setNewCategory(e.target.value)}
+            options={CATEGORIES.map(c => ({ value: c, label: c }))}
+          />
+          <Input label="Handle / Email" placeholder="@handle or email" value={newHandle} onChange={e => setNewHandle(e.target.value)} />
+          <Input label="Timezone" placeholder="PST (UTC-8)" value={newTimezone} onChange={e => setNewTimezone(e.target.value)} />
+          <Textarea label="Notes" placeholder="Optional notes..." value={newNotes} onChange={e => setNewNotes(e.target.value)} rows={2} />
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" onClick={() => setShowAddModal(false)}>Cancel</Button>
+          <Button onClick={handleAddContact} disabled={!newName.trim()}>Add Contact</Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Contact Detail Modal */}
+      <Modal open={!!selectedContact} onClose={() => setSelectedContact(null)} size="sm">
+        {selectedContact && (
+          <>
+            <ModalHeader onClose={() => setSelectedContact(null)}>
+              <div className="flex items-center gap-3">
+                <Avatar name={selectedContact.name} size="lg" />
+                <div>
+                  <h2 className="text-lg font-semibold text-text-base">{selectedContact.name}</h2>
+                  <p className="text-sm text-text-muted">{selectedContact.role}</p>
+                </div>
+              </div>
+            </ModalHeader>
+            <ModalBody className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Category</p>
+                  <Badge variant="muted">{selectedContact.category}</Badge>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Timezone</p>
+                  <p className="text-sm text-text-base">{selectedContact.timezone}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Handle</p>
+                <p className="text-sm text-text-base">{selectedContact.handle}</p>
+              </div>
+              {selectedContact.notes && (
+                <div>
+                  <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">Notes</p>
+                  <p className="text-sm text-text-muted">{selectedContact.notes}</p>
+                </div>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="secondary" onClick={() => setSelectedContact(null)}>Close</Button>
+            </ModalFooter>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

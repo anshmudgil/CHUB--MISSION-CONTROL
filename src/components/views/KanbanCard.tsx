@@ -5,6 +5,8 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '@/types';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Avatar } from '@/components/ui/avatar';
 import { Edit2, Trash2, ArrowRightLeft, Calendar, Flag } from 'lucide-react';
 
 interface KanbanCardProps {
@@ -48,10 +50,18 @@ export function KanbanCard({ task, isOverlay, onClick, onEdit, onDelete, onChang
     return statusMap[columnId] || columnId;
   };
 
-  const priorityColors = {
-    low: 'text-blue-500',
-    medium: 'text-yellow-500',
-    high: 'text-red-500'
+  const priorityVariant = (p?: string) => {
+    if (p === 'high') return 'error' as const;
+    if (p === 'medium') return 'warning' as const;
+    if (p === 'low') return 'info' as const;
+    return 'muted' as const;
+  };
+
+  const statusVariant = (columnId: string) => {
+    if (['done', 'published'].includes(columnId)) return 'success' as const;
+    if (['in-progress', 'scripting', 'recording-drafting', 'editing'].includes(columnId)) return 'info' as const;
+    if (['review', 'scheduled'].includes(columnId)) return 'warning' as const;
+    return 'default' as const;
   };
 
   return (
@@ -70,21 +80,21 @@ export function KanbanCard({ task, isOverlay, onClick, onEdit, onDelete, onChang
       {/* Quick Actions (Hover) */}
       {!isOverlay && (
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-bg-panel/90 backdrop-blur-sm p-1 rounded-lg border border-border-base shadow-sm z-10">
-          <button 
+          <button
             onClick={(e) => { e.stopPropagation(); onEdit?.(e); }}
             className="p-1.5 text-text-muted hover:text-text-base hover:bg-bg-subtle rounded-md transition-colors"
             title="Edit"
           >
             <Edit2 size={14} />
           </button>
-          <button 
+          <button
             onClick={(e) => { e.stopPropagation(); onChangeStatus?.(e); }}
             className="p-1.5 text-text-muted hover:text-text-base hover:bg-bg-subtle rounded-md transition-colors"
             title="Change Status"
           >
             <ArrowRightLeft size={14} />
           </button>
-          <button 
+          <button
             onClick={(e) => { e.stopPropagation(); onDelete?.(e); }}
             className="p-1.5 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
             title="Delete"
@@ -95,9 +105,9 @@ export function KanbanCard({ task, isOverlay, onClick, onEdit, onDelete, onChang
       )}
 
       <div className="flex items-start gap-2 pr-6">
-        <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", 
-          ['backlog', 'idea'].includes(task.columnId) ? 'bg-zinc-500' : 
-          ['in-progress', 'scripting', 'recording-drafting', 'editing'].includes(task.columnId) ? 'bg-blue-500' : 
+        <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
+          ['backlog', 'idea'].includes(task.columnId) ? 'bg-zinc-500' :
+          ['in-progress', 'scripting', 'recording-drafting', 'editing'].includes(task.columnId) ? 'bg-blue-500' :
           ['review', 'scheduled'].includes(task.columnId) ? 'bg-yellow-500' : 'bg-emerald-500'
         )} />
         <div className="flex-1">
@@ -111,12 +121,11 @@ export function KanbanCard({ task, isOverlay, onClick, onEdit, onDelete, onChang
       </div>
 
       {(task.priority || task.dueDate) && (
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-2 mt-1">
           {task.priority && (
-            <div className="flex items-center gap-1 text-[10px] font-medium text-text-muted">
-              <Flag size={10} className={priorityColors[task.priority]} />
-              <span className="capitalize">{task.priority}</span>
-            </div>
+            <Badge variant={priorityVariant(task.priority)} dot>
+              {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+            </Badge>
           )}
           {task.dueDate && (
             <div className="flex items-center gap-1 text-[10px] font-medium text-text-muted">
@@ -134,13 +143,15 @@ export function KanbanCard({ task, isOverlay, onClick, onEdit, onDelete, onChang
               {task.tag.label}
             </span>
           )}
-          <span className="text-[10px] font-medium text-text-muted bg-bg-subtle px-1.5 py-0.5 rounded border border-border-base">
+          <Badge variant={statusVariant(task.columnId)}>
             {getStatusLabel(task.columnId)}
-          </span>
+          </Badge>
         </div>
-        <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold", task.assignee.color)}>
-          {task.assignee.initial}
-        </div>
+        <Avatar
+          name={task.assignee.name}
+          color={task.assignee.color}
+          size="xs"
+        />
       </div>
     </div>
   );
