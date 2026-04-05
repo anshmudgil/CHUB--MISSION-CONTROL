@@ -40,16 +40,30 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+type CalendarEventWithDate = CalendarEvent & { eventDate?: string };
+
 export function CalendarView() {
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEventWithDate | null>(null);
+  const [events, setEvents] = useState<CalendarEventWithDate[]>([]);
   const [viewMode, setViewMode] = useState<string>('week');
 
   useEffect(() => {
-    import('@/data/initial').then(({ CALENDAR_EVENTS }) => {
-      setEvents(CALENDAR_EVENTS);
-    });
+    fetch('/api/calendar')
+      .then(r => r.json())
+      .then((data: Record<string, string>[]) => {
+        setEvents(data.map(e => ({
+          id: e.id,
+          title: e.title,
+          description: e.description || '',
+          time: e.time || '',
+          type: (e.type || 'Velocity OS') as CalendarEvent['type'],
+          color: e.color || '',
+          day: 0,
+          eventDate: e.event_date,
+        })));
+      })
+      .catch(() => {});
   }, []);
 
   const today = useMemo(() => {
@@ -69,11 +83,14 @@ export function CalendarView() {
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   }, [weekStart]);
 
-  // Map events to dates: event.day is offset from today
-  const getEventsForDate = (date: Date): CalendarEvent[] => {
+  // Map events to dates
+  const getEventsForDate = (date: Date): CalendarEventWithDate[] => {
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
     return events.filter(event => {
-      const eventDate = addDays(today, event.day ?? 0);
-      return isSameDay(eventDate, date);
+      if (event.eventDate) return event.eventDate === dateStr;
+      // Fallback for legacy data using day offset
+      const evDate = addDays(today, event.day ?? 0);
+      return isSameDay(evDate, date);
     });
   };
 

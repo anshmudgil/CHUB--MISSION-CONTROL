@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Search, Mail, Clock, Plus, X, Edit2 } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
@@ -26,25 +26,30 @@ type Contact = {
   lastContacted?: string;
 };
 
-const DEFAULT_CONTACTS: Contact[] = [
-  { id: '1', name: 'Henry', role: 'Chief of Staff', category: 'Internal Team', handle: '@henry_os', timezone: 'PST (UTC-8)', notes: 'Primary orchestrator', followUpStage: 'New Lead' },
-  { id: '2', name: 'Charlie', role: 'Infrastructure Engineer', category: 'Internal Team', handle: '@charlie_infra', timezone: 'EST (UTC-5)', notes: 'Handles local models', followUpStage: 'Contacted' },
-  { id: '3', name: 'Sarah Jenkins', role: 'Video Editor', category: 'Content Team', handle: 'sarah@example.com', timezone: 'GMT (UTC+0)', notes: 'Prefers async communication', followUpStage: 'Meeting Scheduled' },
-  { id: '4', name: 'David Chen', role: 'Sponsorships', category: 'External Contacts', handle: 'david.c@agency.com', timezone: 'PST (UTC-8)', followUpStage: 'Proposal Sent' },
-  { id: '5', name: 'Acme Corp', role: 'Enterprise Client', category: 'Clients', handle: 'team@acme.com', timezone: 'CST (UTC-6)', notes: 'Monthly retainer', followUpStage: 'Closed Won' },
-];
-
 const CATEGORIES = ['Internal Team', 'Content Team', 'External Contacts', 'Clients'];
 const FOLLOW_UP_STAGES = ['New Lead', 'Contacted', 'Meeting Scheduled', 'Proposal Sent', 'Closed Won', 'Closed Lost'];
 
 export function ContactsView() {
-  const [contacts, setContacts] = useState<Contact[]>(DEFAULT_CONTACTS);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('name');
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [showAddModal, setShowAddModal] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then(r => r.json())
+      .then((data: Record<string, string>[]) => setContacts(data.map(c => ({
+        ...c,
+        followUpStage: c.follow_up_stage || 'New Lead',
+        lastContacted: c.last_contacted,
+      })) as Contact[]))
+      .catch(() => toast('Failed to load contacts', 'error'))
+      .finally(() => setLoading(false));
+  }, []);
 
   // New contact form
   const [newName, setNewName] = useState('');
@@ -80,22 +85,32 @@ export function ContactsView() {
     );
   }, [contacts, searchQuery, activeCategory, sortBy]);
 
-  const handleAddContact = () => {
+  const handleAddContact = async () => {
     if (!newName.trim()) return;
-    const contact: Contact = {
-      id: Date.now().toString(),
-      name: newName,
-      role: newRole,
-      category: newCategory,
-      handle: newHandle,
-      timezone: newTimezone,
-      notes: newNotes || undefined,
-      followUpStage: 'New Lead',
-    };
-    setContacts(prev => [...prev, contact]);
-    setShowAddModal(false);
-    setNewName(''); setNewRole(''); setNewHandle(''); setNewTimezone(''); setNewNotes('');
-    toast('Contact added', 'success');
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, role: newRole, category: newCategory, handle: newHandle, timezone: newTimezone, notes: newNotes || undefined, follow_up_stage: 'New Lead' }),
+      });
+      const data = await res.json();
+      const contact: Contact = {
+        id: data.id,
+        name: newName,
+        role: newRole,
+        category: newCategory,
+        handle: newHandle,
+        timezone: newTimezone,
+        notes: newNotes || undefined,
+        followUpStage: 'New Lead',
+      };
+      setContacts(prev => [...prev, contact]);
+      setShowAddModal(false);
+      setNewName(''); setNewRole(''); setNewHandle(''); setNewTimezone(''); setNewNotes('');
+      toast('Contact added', 'success');
+    } catch {
+      toast('Failed to add contact', 'error');
+    }
   };
 
   const openEditModal = (c: Contact) => {
@@ -109,24 +124,33 @@ export function ContactsView() {
     setEditFollowUpStage(c.followUpStage || 'New Lead');
   };
 
-  const handleSaveContact = () => {
+  const handleSaveContact = async () => {
     if (!editingContact) return;
-    setContacts(prev => prev.map(c =>
-      c.id === editingContact.id
-        ? {
-            ...c,
-            name: editName,
-            role: editRole,
-            category: editCategory,
-            handle: editHandle,
-            timezone: editTimezone,
-            notes: editNotes || undefined,
-            followUpStage: editFollowUpStage,
-          }
-        : c
-    ));
-    setEditingContact(null);
-    toast('Contact updated', 'success');
+    try {
+      await fetch(`/api/contacts/${editingContact.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName, role: editRole, category: editCategory, handle: editHandle, timezone: editTimezone, notes: editNotes, follow_up_stage: editFollowUpStage }),
+      });
+      setContacts(prev => prev.map(c =>
+        c.id === editingContact.id
+          ? {
+              ...c,
+              name: editName,
+              role: editRole,
+              category: editCategory,
+              handle: editHandle,
+              timezone: editTimezone,
+              notes: editNotes || undefined,
+              followUpStage: editFollowUpStage,
+            }
+          : c
+      ));
+      setEditingContact(null);
+      toast('Contact updated', 'success');
+    } catch {
+      toast('Failed to update contact', 'error');
+    }
   };
 
   return (

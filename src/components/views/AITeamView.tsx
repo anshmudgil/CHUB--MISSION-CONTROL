@@ -164,29 +164,6 @@ const COLOR_THEMES: Record<string, string> = {
   rose: 'text-rose-500 bg-rose-500/10 border-rose-500/30',
 };
 
-// ---------------------------------------------------------------------------
-// LocalStorage helpers
-// ---------------------------------------------------------------------------
-
-const LS_KEY = 'agent-config-custom';
-
-function loadCustomAgents(): Partial<AgentConfig>[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomAgents(agents: AgentConfig[]) {
-  if (typeof window === 'undefined') return;
-  // Save only the fields that can be customized (no icon — not serializable)
-  const serializable = agents.map(({ icon: _icon, ...rest }) => rest);
-  localStorage.setItem(LS_KEY, JSON.stringify(serializable));
-}
-
 // Icon lookup for deserialized custom agents
 const ICON_BY_GROUP: Record<string, React.ElementType> = {
   Core: Bot,
@@ -195,6 +172,10 @@ const ICON_BY_GROUP: Record<string, React.ElementType> = {
   Writers: PenTool,
   Operators: Settings,
 };
+
+function getIconForGroup(group: string): React.ElementType {
+  return ICON_BY_GROUP[group] || Bot;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -843,28 +824,42 @@ export function AITeamView() {
   const [fetchError, setFetchError] = useState(false);
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
 
-  // Load customizations from localStorage on mount
+  // Load custom agent configs from API on mount
   useEffect(() => {
-    const custom = loadCustomAgents();
-    if (custom.length > 0) {
-      // Merge: start with base, override with custom, append new ones
-      const baseIds = new Set(BASE_AGENT_CONFIG.map((a) => a.id));
-      const merged: AgentConfig[] = BASE_AGENT_CONFIG.map((base) => {
-        const override = custom.find((c) => c.id === base.id);
-        if (!override) return base;
-        return { ...base, ...override, icon: base.icon } as AgentConfig;
-      });
-      // Append custom agents that aren't in base
-      custom.forEach((c) => {
-        if (!baseIds.has(c.id ?? '')) {
-          merged.push({
-            ...c,
-            icon: ICON_BY_GROUP[c.group ?? 'Operators'] ?? Bot,
-          } as AgentConfig);
+    fetch('/api/agents')
+      .then((r) => r.json())
+      .then((data: Record<string, string>[]) => {
+        if (data.length > 0) {
+          const customAgents: AgentConfig[] = data.map((a) => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            group: (a.agent_group as AgentConfig['group']) || 'Operators',
+            responsibilities: a.responsibilities ? a.responsibilities.split(',').map((s) => s.trim()) : [],
+            tonality: a.tonality || undefined,
+            personalityTraits: a.personality_traits || undefined,
+            resources: a.resources || undefined,
+            reportsTo: a.reports_to || undefined,
+            color: a.color || 'text-blue-500 bg-blue-500/10 border-blue-500/30',
+            icon: getIconForGroup(a.agent_group || 'Operators'),
+          }));
+          // Merge: base agents override with API data, custom agents appended
+          const baseIds = new Set(BASE_AGENT_CONFIG.map((a) => a.id));
+          const merged: AgentConfig[] = BASE_AGENT_CONFIG.map((base) => {
+            const override = customAgents.find((c) => c.id === base.id);
+            if (!override) return base;
+            return { ...base, ...override, icon: base.icon } as AgentConfig;
+          });
+          // Append custom agents that aren't in base
+          customAgents.forEach((c) => {
+            if (!baseIds.has(c.id)) {
+              merged.push(c);
+            }
+          });
+          setAgentConfigs(merged);
         }
-      });
-      setAgentConfigs(merged);
-    }
+      })
+      .catch(() => {});
   }, []);
 
   // Poll live agent status from ACP registry every 10s
@@ -917,18 +912,52 @@ export function AITeamView() {
     window.dispatchEvent(new CustomEvent('navigate', { detail: section }));
   };
 
-  const handleAddAgent = (newAgent: AgentConfig) => {
-    const updated = [...agentConfigs, newAgent];
-    setAgentConfigs(updated);
-    saveCustomAgents(updated);
+  const handleAddAgent = async (newAgent: AgentConfig) => {
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newAgent.name,
+          role: newAgent.role,
+          agent_group: newAgent.group,
+          responsibilities: newAgent.responsibilities.join(', '),
+          reports_to: newAgent.reportsTo || '',
+          color: newAgent.color,
+        }),
+      });
+      const data = await res.json();
+      const agentWithApiId: AgentConfig = { ...newAgent, id: data.id || newAgent.id };
+      setAgentConfigs((prev) => [...prev, agentWithApiId]);
+    } catch {
+      // Fallback: add locally even if API fails
+      setAgentConfigs((prev) => [...prev, newAgent]);
+    }
   };
 
-  const handleSaveAgent = (updatedFields: Partial<AgentConfig>) => {
+  const handleSaveAgent = async (updatedFields: Partial<AgentConfig>) => {
+    // Persist to API
+    try {
+      await fetch(`/api/agents/${updatedFields.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: updatedFields.name,
+          role: updatedFields.role,
+          responsibilities: updatedFields.responsibilities?.join(', ') || '',
+          tonality: updatedFields.tonality || '',
+          personality_traits: updatedFields.personalityTraits || '',
+          resources: updatedFields.resources || '',
+          reports_to: updatedFields.reportsTo || '',
+        }),
+      });
+    } catch {
+      // Continue with local update even if API fails
+    }
     const updated = agentConfigs.map((cfg) =>
       cfg.id === updatedFields.id ? { ...cfg, ...updatedFields } : cfg
     );
     setAgentConfigs(updated);
-    saveCustomAgents(updated);
     // Update selected agent display
     if (selectedAgent?.id === updatedFields.id) {
       const updatedFull = updated.find((c) => c.id === updatedFields.id);

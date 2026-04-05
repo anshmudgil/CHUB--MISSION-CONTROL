@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, ChevronDown, ChevronRight, Target, Lightbulb, FolderOpen, Edit2, Trash2, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,7 @@ type Objective = {
   progress?: number;
 };
 
-type PlanningData = { [quarter: string]: Objective[] };
+// PlanningData type removed — objectives are fetched per-quarter from API
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ const colorMap = {
   },
 };
 
-const STORAGE_KEY = 'mc-planning';
+// Storage key removed — data now fetched from /api/planning
 
 // ── Inline editable row (for adding initiatives / projects) ───────────────────
 
@@ -259,7 +259,8 @@ export function PlanningView() {
 
   const defaultQuarter = QUARTERS.includes(getCurrentQuarter()) ? getCurrentQuarter() : QUARTERS[0];
   const [selectedQuarter, setSelectedQuarter] = useState<string>(defaultQuarter);
-  const [planningData, setPlanningData] = useState<PlanningData>({});
+  const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // New objective modal
   const [showNewObjectiveModal, setShowNewObjectiveModal] = useState(false);
@@ -281,53 +282,79 @@ export function PlanningView() {
   const [editingProject, setEditingProject] = useState<{ objId: string; initId: string; project: Project } | null>(null);
   const [editProjectTitle, setEditProjectTitle] = useState('');
 
-  // ── Load / save ──────────────────────────────────────────────────────────
+  // ── Fetch planning data from API ────────────────────────────────────────
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setPlanningData(JSON.parse(stored));
-    } catch {
-      // ignore parse errors
-    }
-  }, []);
-
-  const save = useCallback((data: PlanningData) => {
-    setPlanningData(data);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
+    setLoading(true);
+    fetch(`/api/planning?quarter=${encodeURIComponent(selectedQuarter)}`)
+      .then(r => r.json())
+      .then((data: any[]) => {
+        const mapped: Objective[] = data.map((obj: any) => ({
+          id: obj.id,
+          title: obj.title,
+          description: obj.description || '',
+          color: obj.color || 'blue',
+          expanded: false,
+          progress: 0,
+          initiatives: (obj.initiatives || []).map((init: any) => ({
+            id: init.id,
+            title: init.title,
+            description: init.description || '',
+            expanded: false,
+            projects: (init.projects || []).map((proj: any) => ({
+              id: proj.id,
+              title: proj.title,
+              description: proj.description || '',
+              taskCount: proj.task_count || 0,
+              completed: proj.completed || 0,
+            })),
+          })),
+        }));
+        setObjectives(mapped);
+      })
+      .catch(() => toast('Failed to load planning data', 'error'))
+      .finally(() => setLoading(false));
+  }, [selectedQuarter]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  const objectives = planningData[selectedQuarter] ?? [];
-
   const updateObjectives = (updater: (prev: Objective[]) => Objective[]) => {
-    save({ ...planningData, [selectedQuarter]: updater(objectives) });
+    setObjectives(prev => updater(prev));
   };
 
   // ── Objective CRUD ────────────────────────────────────────────────────────
 
-  const handleAddObjective = () => {
+  const handleAddObjective = async () => {
     if (!newObjectiveTitle.trim()) return;
-    const obj: Objective = {
-      id: Date.now().toString(),
-      title: newObjectiveTitle.trim(),
-      description: newObjectiveDescription.trim() || undefined,
-      color: newObjectiveColor,
-      initiatives: [],
-      expanded: true,
-      progress: 0,
-    };
-    updateObjectives(prev => [...prev, obj]);
-    setShowNewObjectiveModal(false);
-    setNewObjectiveTitle('');
-    setNewObjectiveDescription('');
-    setNewObjectiveColor('blue');
-    toast('Objective added', 'success');
+    try {
+      const res = await fetch('/api/planning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quarter: selectedQuarter,
+          title: newObjectiveTitle.trim(),
+          description: newObjectiveDescription.trim(),
+          color: newObjectiveColor,
+        }),
+      });
+      const data = await res.json();
+      setObjectives(prev => [...prev, {
+        id: data.id,
+        title: newObjectiveTitle.trim(),
+        description: newObjectiveDescription.trim() || undefined,
+        color: newObjectiveColor,
+        expanded: true,
+        progress: 0,
+        initiatives: [],
+      }]);
+      setShowNewObjectiveModal(false);
+      setNewObjectiveTitle('');
+      setNewObjectiveDescription('');
+      setNewObjectiveColor('blue');
+      toast('Objective added', 'success');
+    } catch {
+      toast('Failed to add objective', 'error');
+    }
   };
 
   const openEditObjective = (obj: Objective) => {
@@ -337,22 +364,40 @@ export function PlanningView() {
     setEditObjectiveColor(obj.color);
   };
 
-  const handleSaveObjective = () => {
+  const handleSaveObjective = async () => {
     if (!editingObjective || !editObjectiveTitle.trim()) return;
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === editingObjective.id
-          ? { ...o, title: editObjectiveTitle.trim(), description: editObjectiveDescription.trim() || undefined, color: editObjectiveColor }
-          : o
-      )
-    );
-    setEditingObjective(null);
-    toast('Objective updated', 'success');
+    try {
+      await fetch(`/api/planning/objectives/${editingObjective.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editObjectiveTitle.trim(),
+          description: editObjectiveDescription.trim(),
+          color: editObjectiveColor,
+        }),
+      });
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === editingObjective.id
+            ? { ...o, title: editObjectiveTitle.trim(), description: editObjectiveDescription.trim() || undefined, color: editObjectiveColor }
+            : o
+        )
+      );
+      setEditingObjective(null);
+      toast('Objective updated', 'success');
+    } catch {
+      toast('Failed to update objective', 'error');
+    }
   };
 
-  const deleteObjective = (id: string) => {
-    updateObjectives(prev => prev.filter(o => o.id !== id));
-    toast('Objective deleted', 'info');
+  const deleteObjective = async (id: string) => {
+    try {
+      await fetch(`/api/planning/objectives/${id}`, { method: 'DELETE' });
+      updateObjectives(prev => prev.filter(o => o.id !== id));
+      toast('Objective deleted', 'info');
+    } catch {
+      toast('Failed to delete objective', 'error');
+    }
   };
 
   const toggleObjective = (id: string) => {
@@ -363,30 +408,45 @@ export function PlanningView() {
 
   // ── Initiative CRUD ───────────────────────────────────────────────────────
 
-  const addInitiative = (objId: string, title: string) => {
-    const init: Initiative = {
-      id: `${Date.now()}`,
-      title,
-      projects: [],
-      expanded: false,
-    };
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId ? { ...o, initiatives: [...o.initiatives, init] } : o
-      )
-    );
-    toast('Initiative added', 'success');
+  const addInitiative = async (objId: string, title: string) => {
+    try {
+      const res = await fetch('/api/planning/initiatives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective_id: objId, title }),
+      });
+      const data = await res.json();
+      const init: Initiative = {
+        id: data.id,
+        title,
+        projects: [],
+        expanded: false,
+      };
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId ? { ...o, initiatives: [...o.initiatives, init] } : o
+        )
+      );
+      toast('Initiative added', 'success');
+    } catch {
+      toast('Failed to add initiative', 'error');
+    }
   };
 
-  const deleteInitiative = (objId: string, initId: string) => {
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId
-          ? { ...o, initiatives: o.initiatives.filter(i => i.id !== initId) }
-          : o
-      )
-    );
-    toast('Initiative deleted', 'info');
+  const deleteInitiative = async (objId: string, initId: string) => {
+    try {
+      await fetch(`/api/planning/initiatives/${initId}`, { method: 'DELETE' });
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId
+            ? { ...o, initiatives: o.initiatives.filter(i => i.id !== initId) }
+            : o
+        )
+      );
+      toast('Initiative deleted', 'info');
+    } catch {
+      toast('Failed to delete initiative', 'error');
+    }
   };
 
   const toggleInitiative = (objId: string, initId: string) => {
@@ -409,62 +469,86 @@ export function PlanningView() {
     setEditInitiativeTitle(init.title);
   };
 
-  const handleSaveInitiative = () => {
+  const handleSaveInitiative = async () => {
     if (!editingInitiative || !editInitiativeTitle.trim()) return;
     const { objId, init } = editingInitiative;
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId
-          ? {
-              ...o,
-              initiatives: o.initiatives.map(i =>
-                i.id === init.id ? { ...i, title: editInitiativeTitle.trim() } : i
-              ),
-            }
-          : o
-      )
-    );
-    setEditingInitiative(null);
-    toast('Initiative updated', 'success');
+    try {
+      await fetch(`/api/planning/initiatives/${init.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editInitiativeTitle.trim() }),
+      });
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId
+            ? {
+                ...o,
+                initiatives: o.initiatives.map(i =>
+                  i.id === init.id ? { ...i, title: editInitiativeTitle.trim() } : i
+                ),
+              }
+            : o
+        )
+      );
+      setEditingInitiative(null);
+      toast('Initiative updated', 'success');
+    } catch {
+      toast('Failed to update initiative', 'error');
+    }
   };
 
   // ── Project CRUD ──────────────────────────────────────────────────────────
 
-  const addProject = (objId: string, initId: string, title: string) => {
-    const project: Project = { id: `${Date.now()}`, title };
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId
-          ? {
-              ...o,
-              initiatives: o.initiatives.map(i =>
-                i.id === initId
-                  ? { ...i, projects: [...i.projects, project] }
-                  : i
-              ),
-            }
-          : o
-      )
-    );
-    toast('Project added', 'success');
+  const addProject = async (objId: string, initId: string, title: string) => {
+    try {
+      const res = await fetch('/api/planning/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initiative_id: initId, title }),
+      });
+      const data = await res.json();
+      const project: Project = { id: data.id, title };
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId
+            ? {
+                ...o,
+                initiatives: o.initiatives.map(i =>
+                  i.id === initId
+                    ? { ...i, projects: [...i.projects, project] }
+                    : i
+                ),
+              }
+            : o
+        )
+      );
+      toast('Project added', 'success');
+    } catch {
+      toast('Failed to add project', 'error');
+    }
   };
 
-  const deleteProject = (objId: string, initId: string, projectId: string) => {
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId
-          ? {
-              ...o,
-              initiatives: o.initiatives.map(i =>
-                i.id === initId
-                  ? { ...i, projects: i.projects.filter(p => p.id !== projectId) }
-                  : i
-              ),
-            }
-          : o
-      )
-    );
-    toast('Project deleted', 'info');
+  const deleteProject = async (objId: string, initId: string, projectId: string) => {
+    try {
+      await fetch(`/api/planning/projects/${projectId}`, { method: 'DELETE' });
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId
+            ? {
+                ...o,
+                initiatives: o.initiatives.map(i =>
+                  i.id === initId
+                    ? { ...i, projects: i.projects.filter(p => p.id !== projectId) }
+                    : i
+                ),
+              }
+            : o
+        )
+      );
+      toast('Project deleted', 'info');
+    } catch {
+      toast('Failed to delete project', 'error');
+    }
   };
 
   const openEditProject = (objId: string, initId: string, project: Project) => {
@@ -472,30 +556,39 @@ export function PlanningView() {
     setEditProjectTitle(project.title);
   };
 
-  const handleSaveProject = () => {
+  const handleSaveProject = async () => {
     if (!editingProject || !editProjectTitle.trim()) return;
     const { objId, initId, project } = editingProject;
-    updateObjectives(prev =>
-      prev.map(o =>
-        o.id === objId
-          ? {
-              ...o,
-              initiatives: o.initiatives.map(i =>
-                i.id === initId
-                  ? {
-                      ...i,
-                      projects: i.projects.map(p =>
-                        p.id === project.id ? { ...p, title: editProjectTitle.trim() } : p
-                      ),
-                    }
-                  : i
-              ),
-            }
-          : o
-      )
-    );
-    setEditingProject(null);
-    toast('Project updated', 'success');
+    try {
+      await fetch(`/api/planning/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editProjectTitle.trim() }),
+      });
+      updateObjectives(prev =>
+        prev.map(o =>
+          o.id === objId
+            ? {
+                ...o,
+                initiatives: o.initiatives.map(i =>
+                  i.id === initId
+                    ? {
+                        ...i,
+                        projects: i.projects.map(p =>
+                          p.id === project.id ? { ...p, title: editProjectTitle.trim() } : p
+                        ),
+                      }
+                    : i
+                ),
+              }
+            : o
+        )
+      );
+      setEditingProject(null);
+      toast('Project updated', 'success');
+    } catch {
+      toast('Failed to update project', 'error');
+    }
   };
 
   // ── Inline add initiative tracking ───────────────────────────────────────

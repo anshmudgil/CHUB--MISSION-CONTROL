@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, FileText, BrainCircuit, Clock, X, Save, CheckCircle2 } from 'lucide-react';
-import { DOCS } from '@/data/initial';
 import { Doc } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -63,7 +62,8 @@ function groupDocsByDate(docs: Doc[]): { label: string; docs: Doc[] }[] {
 }
 
 export function MemoryView() {
-  const [docs, setDocs] = useState<Doc[]>(DOCS);
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'size'>('date');
@@ -74,6 +74,24 @@ export function MemoryView() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetch('/api/memory')
+      .then(r => r.json())
+      .then((data: Record<string, unknown>[]) => {
+        setDocs(data.map(d => ({
+          id: d.id as string,
+          title: d.title as string,
+          content: (d.content as string) || '',
+          tag: (d.tag as string) || 'General',
+          words: (d.words as number) || 0,
+          size: (d.size as string) || '0 KB',
+          date: (d.date as string) || (d.updated_at as string) || '',
+        })));
+      })
+      .catch(() => toast('Failed to load documents', 'error'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const categories = useMemo(() => Array.from(new Set(docs.map((doc) => doc.tag))), [docs]);
 
@@ -114,9 +132,12 @@ export function MemoryView() {
 
   const groupedDocs = useMemo(() => groupDocsByDate(filteredAndSortedDocs), [filteredAndSortedDocs]);
 
-  const saveDocument = () => {
+  const saveDocument = async () => {
     if (!editingDoc) return;
     setIsSaving(true);
+    const wordCount = editContent.split(/\s+/).filter((w) => w.length > 0).length;
+    const sizeBytes = new Blob([editContent]).size;
+    const sizeStr = sizeBytes < 1024 ? `${sizeBytes} B` : `${(sizeBytes / 1024).toFixed(1)} KB`;
     setDocs((prevDocs) =>
       prevDocs.map((doc) =>
         doc.id === editingDoc.id
@@ -124,12 +145,18 @@ export function MemoryView() {
               ...doc,
               title: editTitle,
               content: editContent,
-              words: editContent.split(/\s+/).filter((w) => w.length > 0).length,
+              words: wordCount,
+              size: sizeStr,
             }
           : doc
       )
     );
     setLastSaved(new Date());
+    await fetch(`/api/memory/${editingDoc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: editTitle, content: editContent, words: wordCount, size: sizeStr }),
+    }).catch(() => {});
     setTimeout(() => setIsSaving(false), 500);
   };
 
