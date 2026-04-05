@@ -14,6 +14,9 @@ import {
   ListTodo,
   MessageSquare,
   Loader2,
+  Plus,
+  Edit2,
+  Check,
 } from 'lucide-react';
 import { AgentRegistration } from '@/types';
 import { cn } from '@/lib/utils';
@@ -21,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { staggerContainer, staggerItem, slideInRight, easeTransition } from '@/lib/motion';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +39,10 @@ type AgentConfig = {
   role: string;
   group: 'Core' | 'Developers' | 'Analysts' | 'Writers' | 'Operators';
   responsibilities: string[];
+  tonality?: string;
+  personalityTraits?: string;
+  resources?: string;
+  reportsTo?: string;
   icon: React.ElementType;
   color: string;
 };
@@ -57,7 +65,7 @@ type Agent = AgentConfig & AgentLive;
 // Config — static metadata that never changes at runtime
 // ---------------------------------------------------------------------------
 
-const AGENT_CONFIG: AgentConfig[] = [
+const BASE_AGENT_CONFIG: AgentConfig[] = [
   {
     id: 'velo',
     name: 'VELO',
@@ -145,6 +153,50 @@ const FALLBACK_LIVE: Record<string, AgentLive> = {
 };
 
 // ---------------------------------------------------------------------------
+// Color theme map
+// ---------------------------------------------------------------------------
+
+const COLOR_THEMES: Record<string, string> = {
+  blue: 'text-blue-500 bg-blue-500/10 border-blue-500/30',
+  emerald: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30',
+  purple: 'text-purple-500 bg-purple-500/10 border-purple-500/30',
+  amber: 'text-amber-500 bg-amber-500/10 border-amber-500/30',
+  rose: 'text-rose-500 bg-rose-500/10 border-rose-500/30',
+};
+
+// ---------------------------------------------------------------------------
+// LocalStorage helpers
+// ---------------------------------------------------------------------------
+
+const LS_KEY = 'agent-config-custom';
+
+function loadCustomAgents(): Partial<AgentConfig>[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomAgents(agents: AgentConfig[]) {
+  if (typeof window === 'undefined') return;
+  // Save only the fields that can be customized (no icon — not serializable)
+  const serializable = agents.map(({ icon: _icon, ...rest }) => rest);
+  localStorage.setItem(LS_KEY, JSON.stringify(serializable));
+}
+
+// Icon lookup for deserialized custom agents
+const ICON_BY_GROUP: Record<string, React.ElementType> = {
+  Core: Bot,
+  Developers: Terminal,
+  Analysts: BarChart2,
+  Writers: PenTool,
+  Operators: Settings,
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -155,7 +207,8 @@ const STATUS_BADGE_VARIANT: Record<AgentStatus, 'success' | 'muted' | 'error' | 
   offline: 'default',
 };
 
-const GROUPS = ['Developers', 'Analysts', 'Writers', 'Operators'] as const;
+const GROUPS = ['Core', 'Developers', 'Analysts', 'Writers', 'Operators'] as const;
+const DISPLAY_GROUPS = ['Developers', 'Analysts', 'Writers', 'Operators'] as const;
 
 function mergeAgent(config: AgentConfig, live: AgentLive, registration?: AgentRegistration): Agent {
   return {
@@ -163,6 +216,16 @@ function mergeAgent(config: AgentConfig, live: AgentLive, registration?: AgentRe
     ...live,
     // Override status from live registration if available
     status: (registration?.status as AgentStatus) ?? live.status,
+  };
+}
+
+function getDefaultLive(): AgentLive {
+  return {
+    currentTask: 'Awaiting assignment',
+    status: 'idle',
+    lastActive: 'Never',
+    recentWork: [],
+    metrics: { tasksCompleted: 0, uptime: 'N/A', avgResponseTime: 'N/A' },
   };
 }
 
@@ -229,7 +292,13 @@ function AgentCard({
         )}
       </div>
 
-      <div className="pt-3 border-t border-border-base flex flex-col gap-2">
+      {agent.reportsTo && (
+        <p className="text-[11px] text-text-muted border-t border-border-base pt-2">
+          Reports to: <span className="text-text-base font-medium">{agent.reportsTo}</span>
+        </p>
+      )}
+
+      <div className={cn('border-t border-border-base flex flex-col gap-2', agent.reportsTo ? 'pt-2' : 'pt-3')}>
         <Badge variant={STATUS_BADGE_VARIANT[agent.status]} dot className="self-start">
           {agent.status}
         </Badge>
@@ -243,30 +312,249 @@ function AgentCard({
 }
 
 // ---------------------------------------------------------------------------
+// New Agent Modal
+// ---------------------------------------------------------------------------
+
+type NewAgentForm = {
+  name: string;
+  role: string;
+  group: AgentConfig['group'];
+  responsibilities: string;
+  reportsTo: string;
+  colorTheme: string;
+};
+
+function NewAgentModal({
+  open,
+  onClose,
+  onSave,
+  agentNames,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (agent: AgentConfig) => void;
+  agentNames: string[];
+}) {
+  const [form, setForm] = useState<NewAgentForm>({
+    name: '',
+    role: '',
+    group: 'Operators',
+    responsibilities: '',
+    reportsTo: '',
+    colorTheme: 'blue',
+  });
+
+  const handleSave = () => {
+    if (!form.name.trim() || !form.role.trim()) return;
+    const newAgent: AgentConfig = {
+      id: form.name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
+      name: form.name.trim(),
+      role: form.role.trim(),
+      group: form.group,
+      responsibilities: form.responsibilities
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean),
+      reportsTo: form.reportsTo || undefined,
+      icon: ICON_BY_GROUP[form.group] ?? Bot,
+      color: COLOR_THEMES[form.colorTheme] ?? COLOR_THEMES.blue,
+    };
+    onSave(newAgent);
+    setForm({ name: '', role: '', group: 'Operators', responsibilities: '', reportsTo: '', colorTheme: 'blue' });
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} size="md">
+      <ModalHeader onClose={onClose}>
+        <h2 className="text-lg font-semibold text-text-base">New Agent</h2>
+        <p className="text-sm text-text-muted mt-0.5">Add a new agent to your autonomous workforce</p>
+      </ModalHeader>
+      <ModalBody className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Name</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Nova"
+              className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Role</label>
+            <input
+              value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              placeholder="e.g. Data Scientist"
+              className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Group</label>
+            <select
+              value={form.group}
+              onChange={(e) => setForm((f) => ({ ...f, group: e.target.value as AgentConfig['group'] }))}
+              className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+            >
+              {GROUPS.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Color Theme</label>
+            <select
+              value={form.colorTheme}
+              onChange={(e) => setForm((f) => ({ ...f, colorTheme: e.target.value }))}
+              className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+            >
+              {Object.keys(COLOR_THEMES).map((c) => (
+                <option key={c} value={c} className="capitalize">{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Responsibilities</label>
+          <textarea
+            value={form.responsibilities}
+            onChange={(e) => setForm((f) => ({ ...f, responsibilities: e.target.value }))}
+            placeholder="Comma-separated, e.g. Data Analysis, Report Generation, API Integration"
+            rows={3}
+            className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong resize-none"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-text-muted uppercase tracking-wider">Reports To</label>
+          <select
+            value={form.reportsTo}
+            onChange={(e) => setForm((f) => ({ ...f, reportsTo: e.target.value }))}
+            className="bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+          >
+            <option value="">None</option>
+            {agentNames.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" size="sm" onClick={handleSave} disabled={!form.name.trim() || !form.role.trim()}>
+          <Plus size={14} />
+          Create Agent
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail drawer (overlay, no layout push)
 // ---------------------------------------------------------------------------
+
+type EditForm = {
+  name: string;
+  role: string;
+  responsibilities: string;
+  tonality: string;
+  personalityTraits: string;
+  resources: string;
+  reportsTo: string;
+};
 
 function AgentDrawer({
   agent,
   onClose,
   onNavigate,
+  onSave,
+  allAgentNames,
 }: {
   agent: Agent;
   onClose: () => void;
   onNavigate: (section: string) => void;
+  onSave: (updated: Partial<AgentConfig>) => void;
+  allAgentNames: string[];
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm>({
+    name: agent.name,
+    role: agent.role,
+    responsibilities: agent.responsibilities.join(', '),
+    tonality: agent.tonality ?? '',
+    personalityTraits: agent.personalityTraits ?? '',
+    resources: agent.resources ?? '',
+    reportsTo: agent.reportsTo ?? '',
+  });
+
+  // Sync form when agent changes
+  useEffect(() => {
+    setEditForm({
+      name: agent.name,
+      role: agent.role,
+      responsibilities: agent.responsibilities.join(', '),
+      tonality: agent.tonality ?? '',
+      personalityTraits: agent.personalityTraits ?? '',
+      resources: agent.resources ?? '',
+      reportsTo: agent.reportsTo ?? '',
+    });
+    setIsEditing(false);
+  }, [agent.id]);
+
+  const handleSave = () => {
+    onSave({
+      id: agent.id,
+      name: editForm.name.trim() || agent.name,
+      role: editForm.role.trim() || agent.role,
+      responsibilities: editForm.responsibilities
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean),
+      tonality: editForm.tonality || undefined,
+      personalityTraits: editForm.personalityTraits || undefined,
+      resources: editForm.resources || undefined,
+      reportsTo: editForm.reportsTo || undefined,
+    });
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditForm({
+      name: agent.name,
+      role: agent.role,
+      responsibilities: agent.responsibilities.join(', '),
+      tonality: agent.tonality ?? '',
+      personalityTraits: agent.personalityTraits ?? '',
+      resources: agent.resources ?? '',
+      reportsTo: agent.reportsTo ?? '',
+    });
+    setIsEditing(false);
+  };
+
   // Close on Escape
   const handleKey = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (isEditing) handleCancel();
+        else onClose();
+      }
     },
-    [onClose]
+    [onClose, isEditing]
   );
 
   useEffect(() => {
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [handleKey]);
+
+  // Other agents for reportsTo select (exclude self)
+  const otherAgentNames = allAgentNames.filter((n) => n !== agent.name);
 
   return (
     <>
@@ -277,7 +565,7 @@ function AgentDrawer({
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
         className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={isEditing ? undefined : onClose}
       />
 
       {/* Drawer */}
@@ -291,21 +579,67 @@ function AgentDrawer({
       >
         {/* Header */}
         <div className="p-6 border-b border-border-base flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center border', agent.color)}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center border shrink-0', agent.color)}>
               <agent.icon size={20} />
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-text-base">{agent.name}</h2>
-              <p className="text-xs text-text-muted">{agent.role}</p>
+            <div className="min-w-0">
+              {isEditing ? (
+                <input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  className="text-sm font-semibold text-text-base bg-bg-subtle border border-border-strong rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-border-strong"
+                />
+              ) : (
+                <h2 className="text-lg font-semibold text-text-base truncate">{agent.name}</h2>
+              )}
+              {isEditing ? (
+                <input
+                  value={editForm.role}
+                  onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
+                  className="text-xs text-text-muted bg-bg-subtle border border-border-base rounded px-2 py-0.5 w-full mt-1 focus:outline-none focus:ring-1 focus:ring-border-strong"
+                />
+              ) : (
+                <p className="text-xs text-text-muted truncate">{agent.role}</p>
+              )}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-bg-subtle rounded-md text-text-muted hover:text-text-base transition-colors"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            {isEditing ? (
+              <>
+                <button
+                  onClick={handleSave}
+                  className="p-2 hover:bg-bg-subtle rounded-md text-emerald-500 hover:text-emerald-400 transition-colors"
+                  title="Save"
+                >
+                  <Check size={15} />
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="p-2 hover:bg-bg-subtle rounded-md text-text-muted hover:text-text-base transition-colors"
+                  title="Cancel"
+                >
+                  <X size={15} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="p-2 hover:bg-bg-subtle rounded-md text-text-muted hover:text-text-base transition-colors"
+                  title="Edit agent"
+                >
+                  <Edit2 size={15} />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="p-2 hover:bg-bg-subtle rounded-md text-text-muted hover:text-text-base transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Body */}
@@ -354,27 +688,121 @@ function AgentDrawer({
           {/* Responsibilities */}
           <div className="space-y-3">
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Core Responsibilities</h3>
-            <ul className="space-y-2">
-              {agent.responsibilities.map((resp, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-text-base">
-                  <CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                  <span>{resp}</span>
-                </li>
-              ))}
-            </ul>
+            {isEditing ? (
+              <textarea
+                value={editForm.responsibilities}
+                onChange={(e) => setEditForm((f) => ({ ...f, responsibilities: e.target.value }))}
+                placeholder="Comma-separated responsibilities"
+                rows={3}
+                className="w-full bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong resize-none"
+              />
+            ) : (
+              <ul className="space-y-2">
+                {agent.responsibilities.map((resp, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-text-base">
+                    <CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span>{resp}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Reports To */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Reports To</h3>
+            {isEditing ? (
+              <select
+                value={editForm.reportsTo}
+                onChange={(e) => setEditForm((f) => ({ ...f, reportsTo: e.target.value }))}
+                className="w-full bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong"
+              >
+                <option value="">None</option>
+                {otherAgentNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-text-base">
+                {agent.reportsTo ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                    {agent.reportsTo}
+                  </span>
+                ) : (
+                  <span className="text-text-muted italic">No reporting relationship</span>
+                )}
+              </p>
+            )}
+          </div>
+
+          {/* Tonality */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Tonality</h3>
+            {isEditing ? (
+              <textarea
+                value={editForm.tonality}
+                onChange={(e) => setEditForm((f) => ({ ...f, tonality: e.target.value }))}
+                placeholder="e.g. Professional, direct, data-driven"
+                rows={2}
+                className="w-full bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong resize-none"
+              />
+            ) : (
+              <p className="text-sm text-text-base">
+                {agent.tonality || <span className="text-text-muted italic">Not defined</span>}
+              </p>
+            )}
+          </div>
+
+          {/* Personality Traits */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Personality Traits</h3>
+            {isEditing ? (
+              <textarea
+                value={editForm.personalityTraits}
+                onChange={(e) => setEditForm((f) => ({ ...f, personalityTraits: e.target.value }))}
+                placeholder="e.g. Analytical, methodical, detail-oriented"
+                rows={2}
+                className="w-full bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong resize-none"
+              />
+            ) : (
+              <p className="text-sm text-text-base">
+                {agent.personalityTraits || <span className="text-text-muted italic">Not defined</span>}
+              </p>
+            )}
+          </div>
+
+          {/* Resources */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Resources</h3>
+            {isEditing ? (
+              <textarea
+                value={editForm.resources}
+                onChange={(e) => setEditForm((f) => ({ ...f, resources: e.target.value }))}
+                placeholder="e.g. Access to GitHub API, database read, Slack webhooks"
+                rows={2}
+                className="w-full bg-bg-subtle border border-border-base rounded-lg px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-1 focus:ring-border-strong resize-none"
+              />
+            ) : (
+              <p className="text-sm text-text-base">
+                {agent.resources || <span className="text-text-muted italic">Not defined</span>}
+              </p>
+            )}
           </div>
 
           {/* Recent Work */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Recent Work</h3>
+          {agent.recentWork.length > 0 && (
             <div className="space-y-3">
-              {agent.recentWork.map((work, i) => (
-                <div key={i} className="bg-bg-subtle border border-border-base rounded-lg p-3 text-sm text-text-base">
-                  {work}
-                </div>
-              ))}
+              <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Recent Work</h3>
+              <div className="space-y-3">
+                {agent.recentWork.map((work, i) => (
+                  <div key={i} className="bg-bg-subtle border border-border-base rounded-lg p-3 text-sm text-text-base">
+                    {work}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Actions footer */}
@@ -408,10 +836,36 @@ function AgentDrawer({
 // ---------------------------------------------------------------------------
 
 export function AITeamView() {
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>(BASE_AGENT_CONFIG);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [liveStatuses, setLiveStatuses] = useState<Record<string, AgentRegistration>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
+  const [showNewAgentModal, setShowNewAgentModal] = useState(false);
+
+  // Load customizations from localStorage on mount
+  useEffect(() => {
+    const custom = loadCustomAgents();
+    if (custom.length > 0) {
+      // Merge: start with base, override with custom, append new ones
+      const baseIds = new Set(BASE_AGENT_CONFIG.map((a) => a.id));
+      const merged: AgentConfig[] = BASE_AGENT_CONFIG.map((base) => {
+        const override = custom.find((c) => c.id === base.id);
+        if (!override) return base;
+        return { ...base, ...override, icon: base.icon } as AgentConfig;
+      });
+      // Append custom agents that aren't in base
+      custom.forEach((c) => {
+        if (!baseIds.has(c.id ?? '')) {
+          merged.push({
+            ...c,
+            icon: ICON_BY_GROUP[c.group ?? 'Operators'] ?? Bot,
+          } as AgentConfig);
+        }
+      });
+      setAgentConfigs(merged);
+    }
+  }, []);
 
   // Poll live agent status from ACP registry every 10s
   useEffect(() => {
@@ -444,21 +898,44 @@ export function AITeamView() {
   }, []);
 
   // Build merged agents list
-  const agents: Agent[] = AGENT_CONFIG.map((cfg) =>
-    mergeAgent(cfg, FALLBACK_LIVE[cfg.id], liveStatuses[cfg.id])
+  const agents: Agent[] = agentConfigs.map((cfg) =>
+    mergeAgent(cfg, FALLBACK_LIVE[cfg.id] ?? getDefaultLive(), liveStatuses[cfg.id])
   );
 
-  const coreAgent = agents.find((a) => a.group === 'Core')!;
-  const groupedAgents = GROUPS.map((g) => ({
+  const coreAgents = agents.filter((a) => a.group === 'Core');
+  const coreAgent = coreAgents[0]!;
+  const groupedAgents = DISPLAY_GROUPS.map((g) => ({
     label: g,
     agents: agents.filter((a) => a.group === g),
   }));
 
-  // Navigation helper — for now dispatches a custom event that App.tsx / layout can handle.
-  // When migrated to Next.js this becomes router.push().
+  const allAgentNames = agentConfigs.map((a) => a.name);
+
+  // Navigation helper
   const handleNavigate = (section: string) => {
     setSelectedAgent(null);
     window.dispatchEvent(new CustomEvent('navigate', { detail: section }));
+  };
+
+  const handleAddAgent = (newAgent: AgentConfig) => {
+    const updated = [...agentConfigs, newAgent];
+    setAgentConfigs(updated);
+    saveCustomAgents(updated);
+  };
+
+  const handleSaveAgent = (updatedFields: Partial<AgentConfig>) => {
+    const updated = agentConfigs.map((cfg) =>
+      cfg.id === updatedFields.id ? { ...cfg, ...updatedFields } : cfg
+    );
+    setAgentConfigs(updated);
+    saveCustomAgents(updated);
+    // Update selected agent display
+    if (selectedAgent?.id === updatedFields.id) {
+      const updatedFull = updated.find((c) => c.id === updatedFields.id);
+      if (updatedFull) {
+        setSelectedAgent((prev) => prev ? { ...prev, ...updatedFull } : prev);
+      }
+    }
   };
 
   return (
@@ -475,14 +952,24 @@ export function AITeamView() {
               <h1 className="text-2xl font-semibold text-text-base tracking-tight">AI Team Org</h1>
               <p className="text-sm text-text-muted mt-1">Manage your autonomous workforce</p>
             </div>
-            {loading && (
-              <Loader2 size={16} className="ml-auto animate-spin text-text-muted" />
-            )}
-            {!loading && fetchError && (
-              <Badge variant="warning" dot className="ml-auto">
-                API unreachable -- showing cached data
-              </Badge>
-            )}
+            <div className="ml-auto flex items-center gap-3">
+              {loading && (
+                <Loader2 size={16} className="animate-spin text-text-muted" />
+              )}
+              {!loading && fetchError && (
+                <Badge variant="warning" dot>
+                  API unreachable -- showing cached data
+                </Badge>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowNewAgentModal(true)}
+              >
+                <Plus size={14} />
+                New Agent
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -507,17 +994,21 @@ export function AITeamView() {
               animate="visible"
               className="max-w-6xl mx-auto flex flex-col items-center"
             >
-              {/* ---- VELO (core) ---- */}
-              <motion.div variants={staggerItem} className="flex flex-col items-center">
-                <AgentCard
-                  agent={coreAgent}
-                  onClick={() => setSelectedAgent(coreAgent)}
-                  isSelected={selectedAgent?.id === coreAgent.id}
-                  isLive={!!liveStatuses[coreAgent.id]}
-                />
-              </motion.div>
+              {/* ---- Core agents ---- */}
+              <div className="flex flex-wrap gap-4 justify-center">
+                {coreAgents.map((agent) => (
+                  <motion.div key={agent.id} variants={staggerItem} className="flex flex-col items-center">
+                    <AgentCard
+                      agent={agent}
+                      onClick={() => setSelectedAgent(agent)}
+                      isSelected={selectedAgent?.id === agent.id}
+                      isLive={!!liveStatuses[agent.id]}
+                    />
+                  </motion.div>
+                ))}
+              </div>
 
-              {/* Vertical connector from VELO down */}
+              {/* Vertical connector from Core down */}
               <div className="w-px h-10 bg-border-strong" />
 
               {/* Horizontal bar spanning the group columns */}
@@ -526,7 +1017,7 @@ export function AITeamView() {
               </div>
 
               {/* Group columns */}
-              <div className="w-full max-w-4xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-8">
+              <div className="w-full max-w-5xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-8">
                 {groupedAgents.map(({ label, agents: groupAgents }) => (
                   <div key={label} className="flex flex-col items-center gap-4">
                     {/* Vertical connector down to group label */}
@@ -537,16 +1028,18 @@ export function AITeamView() {
                       {label}
                     </span>
 
-                    {/* Agent cards in this group */}
-                    {groupAgents.map((agent) => (
-                      <AgentCard
-                        key={agent.id}
-                        agent={agent}
-                        onClick={() => setSelectedAgent(agent)}
-                        isSelected={selectedAgent?.id === agent.id}
-                        isLive={!!liveStatuses[agent.id]}
-                      />
-                    ))}
+                    {/* Agent cards in this group — flex wrap to avoid overlap */}
+                    <div className="flex flex-wrap gap-4 justify-center">
+                      {groupAgents.map((agent) => (
+                        <AgentCard
+                          key={agent.id}
+                          agent={agent}
+                          onClick={() => setSelectedAgent(agent)}
+                          isSelected={selectedAgent?.id === agent.id}
+                          isLive={!!liveStatuses[agent.id]}
+                        />
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -554,6 +1047,14 @@ export function AITeamView() {
           )}
         </div>
       </div>
+
+      {/* New Agent Modal */}
+      <NewAgentModal
+        open={showNewAgentModal}
+        onClose={() => setShowNewAgentModal(false)}
+        onSave={handleAddAgent}
+        agentNames={allAgentNames}
+      />
 
       {/* Overlay drawer */}
       <AnimatePresence>
@@ -563,6 +1064,8 @@ export function AITeamView() {
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
             onNavigate={handleNavigate}
+            onSave={handleSaveAgent}
+            allAgentNames={allAgentNames}
           />
         )}
       </AnimatePresence>

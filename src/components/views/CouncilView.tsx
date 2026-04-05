@@ -3,10 +3,11 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { Send, Bot, Terminal, BarChart2, PenTool, Settings, Crown, Hash, Loader2, Copy, Check, Sparkles } from 'lucide-react';
+import { Send, Bot, Terminal, BarChart2, PenTool, Settings, Crown, Hash, Loader2, Copy, Check, Sparkles, AlertTriangle, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
+import { ACPMessage } from '@/types';
 
 const AGENT_ICONS: Record<string, React.ElementType> = {
   VELO: Bot,
@@ -210,16 +211,91 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// ACP Activity Feed (fallback)
+// ---------------------------------------------------------------------------
+
+function ACPFeedItem({ msg }: { msg: ACPMessage }) {
+  const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b border-border-base last:border-0">
+      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-xs font-medium text-text-base">{msg.from}</span>
+          <span className="text-[10px] text-text-muted">→</span>
+          <span className="text-xs font-medium text-text-muted">{msg.to}</span>
+          <span className="text-[10px] text-text-muted ml-auto">{timeStr}</span>
+        </div>
+        <p className="text-xs text-text-muted line-clamp-2">{msg.content}</p>
+      </div>
+    </div>
+  );
+}
+
+function ACPFallbackFeed() {
+  const [messages, setMessages] = useState<ACPMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchFeed = async () => {
+      try {
+        const res = await fetch('/api/acp?limit=10');
+        if (!res.ok) throw new Error('fetch failed');
+        const data: ACPMessage[] = await res.json();
+        if (!cancelled) setMessages(data);
+      } catch {
+        // silently fail — this is already in an error state
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchFeed();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="bg-bg-panel border border-border-base rounded-xl p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Activity size={14} className="text-blue-500" />
+        <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Recent Agent Activity</h3>
+      </div>
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-text-muted py-2">
+          <Loader2 size={12} className="animate-spin" />
+          Loading activity feed...
+        </div>
+      ) : messages.length === 0 ? (
+        <p className="text-xs text-text-muted py-2 italic">No recent agent activity.</p>
+      ) : (
+        <div>
+          {messages.map((msg) => (
+            <ACPFeedItem key={msg.id} msg={msg} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CouncilView
 // ---------------------------------------------------------------------------
 
 export function CouncilView() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { toast } = useToast();
 
   const [input, setInput] = React.useState('');
+  const [apiError, setApiError] = useState<string | null>(null);
+
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({ api: '/api/council' }),
+    onError: (error) => {
+      toast(`Council error: ${error.message}`, 'error');
+      setApiError(error.message);
+    },
   });
 
   const isStreaming = status === 'streaming' || status === 'submitted';
@@ -227,6 +303,8 @@ export function CouncilView() {
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || isStreaming) return;
+    // Clear any previous error on new attempt
+    setApiError(null);
     sendMessage({ text: input });
     setInput('');
     // Reset textarea height
@@ -252,6 +330,7 @@ export function CouncilView() {
 
   const handleSuggestedPrompt = (prompt: string) => {
     if (isStreaming) return;
+    setApiError(null);
     sendMessage({ text: prompt });
   };
 
@@ -281,17 +360,42 @@ export function CouncilView() {
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
             isStreaming
               ? 'text-blue-400 bg-blue-500/10 border border-blue-500/30'
+              : apiError
+              ? 'text-red-400 bg-red-500/10 border border-red-500/30'
               : 'text-text-muted border border-transparent'
           }`}>
             {isStreaming && <Loader2 size={12} className="animate-spin" />}
-            {isStreaming ? 'VELO is responding...' : 'Ready'}
+            {apiError && <AlertTriangle size={12} />}
+            {isStreaming ? 'VELO is responding...' : apiError ? 'Offline' : 'Ready'}
           </div>
         </div>
       </div>
 
       {/* Chat Feed */}
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col gap-6">
-        {messages.length === 0 && (
+        {/* Error banner */}
+        {apiError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex flex-col gap-3"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={16} className="text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-300">Council AI is currently offline</p>
+                <p className="text-xs text-red-400/80 mt-1">
+                  Check your AI Gateway credentials (<code className="font-mono bg-red-500/10 rounded px-1">VERCEL_OIDC_TOKEN</code> or{' '}
+                  <code className="font-mono bg-red-500/10 rounded px-1">ANTHROPIC_API_KEY</code> in your{' '}
+                  <code className="font-mono bg-red-500/10 rounded px-1">.env.local</code> file).
+                </p>
+                <p className="text-xs text-red-400/60 mt-1.5 font-mono">{apiError}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {messages.length === 0 && !apiError && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-md">
               <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mx-auto mb-4">
@@ -314,6 +418,11 @@ export function CouncilView() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ACP fallback feed shown when there's an error and no messages */}
+        {apiError && messages.length === 0 && (
+          <ACPFallbackFeed />
         )}
 
         <AnimatePresence initial={false}>
@@ -371,6 +480,14 @@ export function CouncilView() {
             );
           })}
         </AnimatePresence>
+
+        {/* ACP fallback feed shown below messages when there's an error */}
+        {apiError && messages.length > 0 && (
+          <div className="mt-4">
+            <ACPFallbackFeed />
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
